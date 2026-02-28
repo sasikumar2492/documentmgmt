@@ -1,0 +1,12 @@
+# Syncfusion Word Processor Server - DOCX to SFDT conversion for Document Editor
+# Run: docker-compose -f docker-compose.syncfusion.yml up -d
+# API: http://localhost:6002/api/documenteditor
+# Replace YOUR_LICENSE_KEY with a valid Syncfusion license for production (trial works for evaluation).
+# Note: Start Docker Desktop (or your Docker engine) before running.
+services:
+  word-processor-server:
+    image: syncfusion/word-processor-server:latest
+    environment:
+      SYNCFUSION_LICENSE_KEY: ${SYNCFUSION_LICENSE_KEY:-}
+    ports:
+      - "6002:80"
