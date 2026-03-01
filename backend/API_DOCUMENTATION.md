@@ -1,7 +1,56 @@
 # Pharma DMS – API Documentation (Frontend)
 
 **Base URL:** `http://localhost:4000/api` (or your `VITE_API_URL`)  
-**Authentication:** JWT Bearer token (except login and health)
+**Authentication:** JWT Bearer token (except login, health, forgot-password, reset-password)
+
+---
+
+## Completed APIs Overview
+
+All endpoints currently implemented and available for the frontend and Postman.
+
+| # | Method | Endpoint | Auth | Description |
+|---|--------|----------|------|-------------|
+| 1 | GET | /api/health | No | Health check |
+| 2 | POST | /api/auth/login | No | Login, get JWT |
+| 3 | GET | /api/auth/me | Yes | Current user profile |
+| 4 | POST | /api/auth/refresh | Yes | Re-issue JWT |
+| 5 | POST | /api/auth/forgot-password | No | Request password reset |
+| 6 | POST | /api/auth/reset-password | No | Reset password with token |
+| 7 | GET | /api/dashboard/summary | Yes | Dashboard: requestCountsByStatus, recentRequests, recentTemplates |
+| 8 | GET | /api/departments | Yes | List departments |
+| 9 | GET | /api/users | Yes | List users |
+| 10 | GET | /api/templates | Yes | List templates |
+| 11 | GET | /api/templates/:id | Yes | Get template |
+| 12 | GET | /api/templates/:id/file | Yes | Template file stream (binary) |
+| 13 | GET | /api/templates/:id/download | Yes | Presigned S3 download URL (or 404) |
+| 14 | POST | /api/templates | Yes | Upload template (multipart) |
+| 15 | PATCH | /api/templates/:id | Yes | Update template |
+| 16 | GET | /api/requests | Yes | List requests (filters, search, pagination, sort) |
+| 17 | GET | /api/requests/:id | Yes | Get request |
+| 18 | GET | /api/requests/:id/activity | Yes | Request activity / audit entries |
+| 19 | GET | /api/requests/:id/workflow | Yes | Request workflow instance and steps |
+| 20 | POST | /api/requests/:id/workflow/actions | Yes | Workflow action (init, approve, reject, request_revision) |
+| 21 | POST | /api/requests | Yes | Create request |
+| 22 | PATCH | /api/requests/:id | Yes | Update request |
+| 23 | GET | /api/requests/:id/form-data | Yes | Get form data (Save Draft / load) |
+| 24 | PUT | /api/requests/:id/form-data | Yes | Save form data (Save Draft) |
+| 25 | GET | /api/documents | Yes | List documents |
+| 26 | GET | /api/documents/:id | Yes | Get document |
+| 27 | GET | /api/documents/:id/file | Yes | Document file stream |
+| 28 | POST | /api/documents | Yes | Upload document (multipart) |
+| 29 | PATCH | /api/documents/:id | Yes | Update document status |
+| 30 | GET | /api/audit-logs | Yes | List audit logs |
+| 31 | GET | /api/workflows | Yes | List workflows |
+| 32 | GET | /api/workflows/:id | Yes | Get workflow |
+| 33 | GET | /api/workflows/:id/steps | Yes | List workflow steps |
+| 34 | PUT | /api/workflows/:id/steps | Yes | Replace workflow steps |
+| 35 | POST | /api/workflows | Yes | Create workflow |
+| 36 | PATCH | /api/workflows/:id | Yes | Update workflow |
+| 37 | GET | /api/workflow-rules | Yes | List workflow rules |
+| 38 | GET | /api/workflow-rules/:id | Yes | Get workflow rule |
+| 39 | POST | /api/workflow-rules | Yes | Create workflow rule |
+| 40 | PATCH | /api/workflow-rules/:id | Yes | Update workflow rule |
 
 ---
 

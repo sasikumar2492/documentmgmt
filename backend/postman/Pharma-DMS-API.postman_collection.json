@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Pharma DMS API",
-    "description": "REST API for Pharma Document Management System. Base URL: {{baseUrl}}. After login, use the token in Authorization (Bearer) for other requests.",
+    "description": "REST API for Pharma Document Management System. Covers all completed APIs: Health, Auth (login, me, refresh, forgot/reset password), Dashboard summary, Departments, Users, Templates (list, get, file, download, upload, update), Requests (list with filters/pagination, get, activity, workflow, create, update), Form Data, Documents, Audit Logs, Workflows, Workflow Rules. Base URL: {{baseUrl}}. After login, set token in collection variable for Bearer auth.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -256,15 +256,23 @@
           "request": {
             "method": "GET",
             "url": {
-              "raw": "{{baseUrl}}/requests?department_id=&status=",
+              "raw": "{{baseUrl}}/requests?department_id=&status=&q=&assigned_to=&from_date=&to_date=&sortBy=created_at&sortOrder=desc&page=&pageSize=",
               "host": ["{{baseUrl}}"],
               "path": ["requests"],
               "query": [
                 { "key": "department_id", "value": "", "disabled": true },
-                { "key": "status", "value": "draft", "disabled": true }
+                { "key": "status", "value": "draft", "disabled": true },
+                { "key": "q", "value": "", "disabled": true, "description": "Search title, request_id, department name" },
+                { "key": "assigned_to", "value": "", "disabled": true, "description": "Assignee user UUID" },
+                { "key": "from_date", "value": "", "disabled": true, "description": "created_at >= (ISO)" },
+                { "key": "to_date", "value": "", "disabled": true, "description": "created_at <= (ISO)" },
+                { "key": "sortBy", "value": "created_at", "disabled": true, "description": "created_at|title|status|request_id|department_name|assigned_to_name|updated_at" },
+                { "key": "sortOrder", "value": "desc", "disabled": true },
+                { "key": "page", "value": "1", "disabled": true, "description": "With pageSize returns { data, total, page, pageSize }" },
+                { "key": "pageSize", "value": "10", "disabled": true, "description": "Max 500" }
               ]
             },
-            "description": "List requests. Optional: department_id, status."
+            "description": "List requests (Document Library). Optional: department_id, status, q (search), assigned_to, from_date, to_date, sortBy, sortOrder. Use page + pageSize for paginated response { data, total, page, pageSize }."
           }
         },
         {
