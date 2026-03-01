@@ -1,0 +1,380 @@
+{
+  "info": {
+    "name": "Pharma DMS API",
+    "description": "REST API for Pharma Document Management System. Base URL: {{baseUrl}}. After login, use the token in Authorization (Bearer) for other requests.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:4000/api" },
+    { "key": "token", "value": "" },
+    { "key": "requestId", "value": "" },
+    { "key": "templateId", "value": "" },
+    { "key": "documentId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const json = pm.response.json();",
+                  "    if (json.token) {",
+                  "        pm.collectionVariables.set('token', json.token);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"admin\",\n  \"password\": \"your-password\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login",
+            "description": "Authenticate and get JWT. Saves token to collection variable for other requests."
+          }
+        },
+        {
+          "name": "Get Me",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/auth/me",
+            "description": "Get current user profile. Requires Bearer token."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": "{{baseUrl}}/health",
+            "description": "Service health check. No auth required."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Departments",
+      "item": [
+        {
+          "name": "List Departments",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/departments",
+            "description": "List all departments."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "List Users",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/users",
+            "description": "List users (for assignee/reviewer selection)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Templates",
+      "item": [
+        {
+          "name": "List Templates",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/templates?department_id=&status=",
+              "host": ["{{baseUrl}}"],
+              "path": ["templates"],
+              "query": [
+                { "key": "department_id", "value": "", "disabled": true },
+                { "key": "status", "value": "draft", "disabled": true }
+              ]
+            },
+            "description": "List templates. Optional query: department_id, status (draft|approved)."
+          }
+        },
+        {
+          "name": "Get Template by ID",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/templates/{{templateId}}",
+            "description": "Get single template. Set templateId in collection variables."
+          }
+        },
+        {
+          "name": "Get Template File",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/templates/{{templateId}}/file",
+            "description": "Download template file (binary)."
+          }
+        },
+        {
+          "name": "Upload Template",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": "", "description": "Word/Excel/PDF file" },
+                { "key": "department_id", "value": "", "type": "text", "disabled": true }
+              ]
+            },
+            "url": "{{baseUrl}}/templates",
+            "description": "Upload template. multipart/form-data: file (required), department_id (optional)."
+          }
+        },
+        {
+          "name": "Update Template",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"approved\",\n  \"parsed_sections\": []\n}"
+            },
+            "url": "{{baseUrl}}/templates/{{templateId}}",
+            "description": "Update template. Body: file_name, department_id, status, parsed_sections (all optional)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Requests",
+      "item": [
+        {
+          "name": "List Requests",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/requests?department_id=&status=",
+              "host": ["{{baseUrl}}"],
+              "path": ["requests"],
+              "query": [
+                { "key": "department_id", "value": "", "disabled": true },
+                { "key": "status", "value": "draft", "disabled": true }
+              ]
+            },
+            "description": "List requests. Optional: department_id, status."
+          }
+        },
+        {
+          "name": "Get Request by ID",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/requests/{{requestId}}",
+            "description": "Get single request. Set requestId (UUID) in collection variables."
+          }
+        },
+        {
+          "name": "Create Request",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const json = pm.response.json();",
+                  "    if (json.id) pm.collectionVariables.set('requestId', json.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"template_id\": \"{{templateId}}\",\n  \"title\": \"Test Request\",\n  \"department_id\": null\n}"
+            },
+            "url": "{{baseUrl}}/requests",
+            "description": "Create request from template. template_id required. Saves requestId to collection."
+          }
+        },
+        {
+          "name": "Update Request",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"submitted\",\n  \"assigned_to\": null,\n  \"reviewSequence\": [],\n  \"priority\": \"medium\",\n  \"submissionComments\": null\n}"
+            },
+            "url": "{{baseUrl}}/requests/{{requestId}}",
+            "description": "Update request. Body: title, status, assigned_to, review_sequence/reviewSequence, priority, submission_comments (all optional)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Form Data",
+      "item": [
+        {
+          "name": "Get Form Data",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/requests/{{requestId}}/form-data",
+            "description": "Get form data for a request. :id is request UUID."
+          }
+        },
+        {
+          "name": "Put Form Data",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"data\": {},\n  \"formSectionsSnapshot\": null\n}"
+            },
+            "url": "{{baseUrl}}/requests/{{requestId}}/form-data",
+            "description": "Create or update form data. Body: data (object), formSectionsSnapshot (optional)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Documents",
+      "item": [
+        {
+          "name": "List Documents",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/documents?request_id=&status=&department_id=",
+              "host": ["{{baseUrl}}"],
+              "path": ["documents"],
+              "query": [
+                { "key": "request_id", "value": "", "disabled": true },
+                { "key": "status", "value": "", "disabled": true },
+                { "key": "department_id", "value": "", "disabled": true }
+              ]
+            },
+            "description": "List documents. Optional: request_id, status, department_id."
+          }
+        },
+        {
+          "name": "Get Document by ID",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/documents/{{documentId}}",
+            "description": "Get single document."
+          }
+        },
+        {
+          "name": "Get Document File",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/documents/{{documentId}}/file",
+            "description": "Download document file (binary)."
+          }
+        },
+        {
+          "name": "Upload Document",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const json = pm.response.json();",
+                  "    if (json.id) pm.collectionVariables.set('documentId', json.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": "", "description": "PDF, DOCX, or XLSX" },
+                { "key": "request_id", "value": "{{requestId}}", "type": "text", "disabled": true }
+              ]
+            },
+            "url": "{{baseUrl}}/documents",
+            "description": "Upload document. multipart: file (required), request_id (optional). Saves documentId to collection."
+          }
+        },
+        {
+          "name": "Update Document",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"approved\"\n}"
+            },
+            "url": "{{baseUrl}}/documents/{{documentId}}",
+            "description": "Update document. Body: status (required)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Audit Logs",
+      "item": [
+        {
+          "name": "List Audit Logs",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/audit-logs?entity_type=&entity_id=&user_id=&request_id=&date_range=&from_date=&to_date=&limit=100",
+              "host": ["{{baseUrl}}"],
+              "path": ["audit-logs"],
+              "query": [
+                { "key": "entity_type", "value": "request", "disabled": true },
+                { "key": "entity_id", "value": "", "disabled": true },
+                { "key": "user_id", "value": "", "disabled": true },
+                { "key": "request_id", "value": "", "disabled": true },
+                { "key": "date_range", "value": "week", "disabled": true, "description": "today|week|month" },
+                { "key": "from_date", "value": "", "disabled": true },
+                { "key": "to_date", "value": "", "disabled": true },
+                { "key": "limit", "value": "100", "disabled": true }
+              ]
+            },
+            "description": "List audit logs. Query: entity_type, entity_id, user_id, request_id, date_range (today|week|month), from_date, to_date, limit (default 100, max 500)."
+          }
+        }
+      ]
+    }
+  ]
+}
