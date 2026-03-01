@@ -99,4 +99,24 @@ async function list(filters = {}) {
   }
 }
 
-module.exports = { list };
+async function insert(entry) {
+  const { entity_type, entity_id, action, user_id, details } = entry;
+  const client = await pool.connect();
+  try {
+    await client.query(
+      `INSERT INTO audit_logs (entity_type, entity_id, action, user_id, details)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        entity_type,
+        entity_id,
+        action,
+        user_id || null,
+        details != null ? JSON.stringify(details) : null,
+      ]
+    );
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { list, insert };

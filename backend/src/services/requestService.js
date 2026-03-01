@@ -28,9 +28,57 @@ function mapRow(row) {
   };
 }
 
+const ALLOWED_SORT = { created_at: 'r.created_at', title: 'r.title', status: 'r.status', request_id: 'r.request_id', department_name: 'd.name', assigned_to_name: 'u.full_name', updated_at: 'r.updated_at' };
+
 async function list(filters = {}) {
-  const { department_id, status } = filters;
-  let query = `
+  const {
+    department_id,
+    status,
+    q,
+    assigned_to,
+    from_date,
+    to_date,
+    sortBy = 'created_at',
+    sortOrder = 'desc',
+    page,
+    pageSize,
+  } = filters;
+
+  const params = [];
+  const conditions = [];
+  let idx = 1;
+  if (department_id) {
+    conditions.push(`r.department_id = $${idx++}`);
+    params.push(department_id);
+  }
+  if (status) {
+    conditions.push(`r.status = $${idx++}`);
+    params.push(status);
+  }
+  if (q && String(q).trim()) {
+    conditions.push(`(r.title ILIKE $${idx} OR r.request_id ILIKE $${idx} OR d.name ILIKE $${idx})`);
+    params.push(`%${String(q).trim()}%`);
+    idx += 1;
+  }
+  if (assigned_to) {
+    conditions.push(`r.assigned_to = $${idx++}`);
+    params.push(assigned_to);
+  }
+  if (from_date) {
+    conditions.push(`r.created_at >= $${idx++}::timestamptz`);
+    params.push(from_date);
+  }
+  if (to_date) {
+    conditions.push(`r.created_at <= $${idx++}::timestamptz`);
+    params.push(to_date);
+  }
+  const whereClause = conditions.length ? ` AND ${conditions.join(' AND ')}` : '';
+
+  const orderCol = ALLOWED_SORT[sortBy] || ALLOWED_SORT.created_at;
+  const orderDir = (sortOrder || '').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+  const orderClause = ` ORDER BY ${orderCol} ${orderDir}`;
+
+  const baseSql = `
     SELECT r.id, r.template_id, r.request_id, r.title, r.department_id, r.status,
            r.created_by, r.assigned_to, r.review_sequence, r.priority, r.submission_comments,
            r.created_at, r.updated_at,
@@ -43,21 +91,32 @@ async function list(filters = {}) {
     LEFT JOIN users u ON r.assigned_to = u.id
     WHERE 1=1
   `;
-  const params = [];
-  let n = 1;
-  if (department_id) {
-    query += ` AND r.department_id = $${n++}`;
-    params.push(department_id);
-  }
-  if (status) {
-    query += ` AND r.status = $${n++}`;
-    params.push(status);
-  }
-  query += ` ORDER BY r.created_at DESC`;
   const client = await pool.connect();
   try {
-    const result = await client.query(query, params);
-    return result.rows.map(mapRow);
+    const hasPagination = page != null && pageSize != null && Number(pageSize) > 0;
+    let total = null;
+    if (hasPagination) {
+      const countResult = await client.query(
+        `SELECT COUNT(*)::int AS total FROM requests r LEFT JOIN templates t ON r.template_id = t.id LEFT JOIN departments d ON r.department_id = d.id LEFT JOIN users u ON r.assigned_to = u.id WHERE 1=1${whereClause}`,
+        params
+      );
+      total = countResult.rows[0].total;
+    }
+
+    let dataQuery = baseSql + whereClause + orderClause;
+    const dataParams = [...params];
+    if (hasPagination) {
+      const limit = Math.max(1, Math.min(500, Number(pageSize)));
+      const offset = (Math.max(1, Number(page)) - 1) * limit;
+      dataQuery += ` LIMIT $${idx++} OFFSET $${idx}`;
+      dataParams.push(limit, offset);
+    }
+    const result = await client.query(dataQuery, dataParams);
+    const rows = result.rows.map(mapRow);
+    if (hasPagination) {
+      return { data: rows, total, page: Math.max(1, Number(page)), pageSize: Math.max(1, Math.min(500, Number(pageSize))) };
+    }
+    return rows;
   } finally {
     client.release();
   }
@@ -88,24 +147,23 @@ async function create(data) {
   const request_id = nextRequestId();
   const client = await pool.connect();
   try {
-    const q = await client.query(
+    await client.query(
       `INSERT INTO requests (template_id, request_id, title, department_id, status, created_by)
-       VALUES ($1, $2, $3, $4, 'draft', $5)
-       RETURNING *`,
+       VALUES ($1, $2, $3, $4, 'draft', $5)`,
       [template_id, request_id, title || null, department_id || null, created_by]
     );
+    const q = await client.query(
+      `SELECT r.*, t.file_name AS template_file_name, t.file_size AS template_file_size,
+              d.name AS department_name, u.full_name AS assigned_to_name
+       FROM requests r
+       LEFT JOIN templates t ON r.template_id = t.id
+       LEFT JOIN departments d ON r.department_id = d.id
+       LEFT JOIN users u ON r.assigned_to = u.id
+       WHERE r.request_id = $1`,
+      [request_id]
+    );
     const row = q.rows[0];
-    return {
-      id: row.id,
-      templateId: row.template_id,
-      requestId: row.request_id,
-      title: row.title,
-      departmentId: row.department_id,
-      status: row.status,
-      createdBy: row.created_by,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
+    return row ? mapRow(row) : null;
   } finally {
     client.release();
   }

@@ -2,6 +2,8 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const { pool } = require('../db/pool');
 const fileStorage = require('./fileStorage');
+const s3Service = require('./s3Service');
+const config = require('../config');
 
 function mapRow(r) {
   return {
@@ -71,7 +73,10 @@ async function getById(id) {
 async function getFileInfo(id) {
   const client = await pool.connect();
   try {
-    const q = await client.query('SELECT file_path, file_name FROM templates WHERE id = $1', [id]);
+    const q = await client.query(
+      'SELECT file_path, file_name, s3_bucket, s3_key FROM templates WHERE id = $1',
+      [id]
+    );
     return q.rows[0] || null;
   } finally {
     client.release();
@@ -80,6 +85,7 @@ async function getFileInfo(id) {
 
 /**
  * Upload a new template. file = { buffer, originalname, mimetype }, fields = { department_id? }, userId from JWT.
+ * Stores file locally; if S3 is configured, also uploads to S3 and sets s3_bucket/s3_key.
  * Returns created template record (no parsedSections in response for upload).
  */
 async function upload(file, fields, userId) {
@@ -89,6 +95,7 @@ async function upload(file, fields, userId) {
   fileStorage.saveFile('templates', filename, file.buffer);
   const relativePath = path.join('templates', filename);
   const client = await pool.connect();
+  let row;
   try {
     const q = await client.query(
       `INSERT INTO templates (file_name, file_path, file_size, department_id, status, uploaded_by)
@@ -96,20 +103,47 @@ async function upload(file, fields, userId) {
        RETURNING id, file_name, file_path, file_size, department_id, status, created_at, updated_at`,
       [file.originalname, relativePath, file.buffer.length, department_id, userId]
     );
-    const row = q.rows[0];
-    return {
-      id: row.id,
-      fileName: row.file_name,
-      filePath: row.file_path,
-      fileSize: String(row.file_size),
-      department: row.department_id,
-      status: row.status,
-      uploadDate: row.created_at,
-      updatedAt: row.updated_at,
-    };
+    row = q.rows[0];
   } finally {
     client.release();
   }
+
+  if (s3Service.isS3Configured() && config.s3.bucket) {
+    const bucket = config.s3.bucket;
+    const prefix = (config.s3.prefix || '').trim().replace(/\/+$/, '');
+    const key = prefix
+      ? `${prefix}/templates/${row.id}/${file.originalname || filename}`
+      : `templates/${row.id}/${file.originalname || filename}`;
+    const contentType =
+      file.mimetype || 'application/octet-stream';
+    try {
+      await s3Service.uploadFile(bucket, key, file.buffer, contentType, {
+        originalname: file.originalname || '',
+      });
+      const client2 = await pool.connect();
+      try {
+        await client2.query(
+          'UPDATE templates SET s3_bucket = $1, s3_key = $2, updated_at = NOW() WHERE id = $3',
+          [bucket, key, row.id]
+        );
+      } finally {
+        client2.release();
+      }
+    } catch (err) {
+      console.error('S3 upload failed (template still saved locally):', err);
+    }
+  }
+
+  return {
+    id: row.id,
+    fileName: row.file_name,
+    filePath: row.file_path,
+    fileSize: String(row.file_size),
+    department: row.department_id,
+    status: row.status,
+    uploadDate: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 async function update(id, updates) {
@@ -160,4 +194,30 @@ async function update(id, updates) {
   }
 }
 
-module.exports = { list, getById, getFileInfo, upload, update, mapRow };
+/**
+ * Get presigned download URL for template file when stored in S3.
+ * @param {string} id - Template id
+ * @param {number} [expiresIn=3600] - URL expiry in seconds
+ * @returns {Promise<{ downloadUrl: string, expiresAt: string }|null>}
+ */
+async function getDownloadInfo(id, expiresIn = 3600) {
+  const client = await pool.connect();
+  let bucket, key;
+  try {
+    const q = await client.query(
+      'SELECT s3_bucket, s3_key FROM templates WHERE id = $1',
+      [id]
+    );
+    const r = q.rows[0];
+    if (!r || !r.s3_bucket || !r.s3_key) return null;
+    bucket = r.s3_bucket;
+    key = r.s3_key;
+  } finally {
+    client.release();
+  }
+  const downloadUrl = await s3Service.getPresignedDownloadUrl(bucket, key, expiresIn);
+  const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+  return { downloadUrl, expiresAt };
+}
+
+module.exports = { list, getById, getFileInfo, upload, update, getDownloadInfo, mapRow };

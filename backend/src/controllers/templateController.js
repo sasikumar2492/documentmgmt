@@ -116,4 +116,24 @@ async function update(req, res) {
   }
 }
 
-module.exports = { list, getById, getFile, upload, update };
+async function getDownload(req, res) {
+  try {
+    const expiresIn = Math.min(
+      parseInt(req.query.expiresIn, 10) || 3600,
+      86400
+    );
+    const info = await templateService.getDownloadInfo(req.params.id, expiresIn);
+    if (!info) {
+      return res.status(404).json({
+        error: 'Download not available for this template',
+        message: 'File is served via GET /templates/:id/file when not stored in S3.',
+      });
+    }
+    res.json(info);
+  } catch (err) {
+    console.error('Template download error:', err);
+    res.status(500).json({ error: 'Failed to get download URL' });
+  }
+}
+
+module.exports = { list, getById, getFile, upload, update, getDownload };

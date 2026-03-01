@@ -8,15 +8,18 @@
 ## Table of Contents
 
 1. [Authentication](#1-authentication)
-2. [Health](#2-health)
-3. [Departments](#3-departments)
-4. [Users](#4-users)
-5. [Templates](#5-templates)
-6. [Requests](#6-requests)
-7. [Form Data](#7-form-data)
-8. [Documents](#8-documents)
-9. [Audit Logs](#9-audit-logs)
-10. [Error Responses](#10-error-responses)
+2. [Dashboard](#2-dashboard)
+3. [Health](#3-health)
+4. [Departments](#4-departments)
+5. [Users](#5-users)
+6. [Templates](#6-templates)
+7. [Requests](#7-requests)
+8. [Form Data](#8-form-data)
+9. [Documents](#9-documents)
+10. [Audit Logs](#10-audit-logs)
+11. [Workflows](#11-workflows)
+12. [Workflow Rules](#12-workflow-rules)
+13. [Error Responses](#13-error-responses)
 
 ---
 
@@ -105,7 +108,101 @@ Get the current user profile.
 
 ---
 
-## 2. Health
+### POST /api/auth/refresh
+
+Re-issue a JWT using the current Bearer token. Use when the token is about to expire.
+
+**Auth required:** Yes (valid Bearer token)
+
+**Request body:** None (or empty JSON).
+
+**Success (200):** Same as login: `{ "token": "new-jwt...", "user": { ... } }`.
+
+**Errors:**
+
+- `401` – Missing or expired token
+- `500` – `{ "error": "Refresh failed" }`
+
+---
+
+### POST /api/auth/forgot-password
+
+Request a password reset. Sends (or in dev logs) a reset token for the given username.
+
+**Auth required:** No
+
+**Request body (JSON):**
+
+| Field    | Type   | Required | Description |
+|----------|--------|----------|-------------|
+| username | string | Yes      | User login  |
+
+**Success (200):** `{ "message": "If the user exists, a reset link has been sent." }` (same message regardless for privacy).
+
+**Errors:**
+
+- `400` – `{ "error": "Username required" }`
+- `500` – `{ "error": "Failed to process request" }`
+
+---
+
+### POST /api/auth/reset-password
+
+Reset password using the token received from forgot-password (e.g. via email or dev log).
+
+**Auth required:** No
+
+**Request body (JSON):**
+
+| Field       | Type   | Required | Description        |
+|-------------|--------|----------|--------------------|
+| token      | string | Yes      | Reset token        |
+| newPassword | string | Yes      | New password       |
+
+**Success (200):** `{ "message": "Password reset successfully." }`.
+
+**Errors:**
+
+- `400` – `{ "error": "Token and new password required" }` or `{ "error": "Invalid or expired token" }`
+- `500` – `{ "error": "Failed to reset password" }`
+
+---
+
+## 2. Dashboard
+
+### GET /api/dashboard/summary
+
+Get dashboard summary: request counts by status, recent requests, and recent templates.
+
+**Auth required:** Yes
+
+**Query parameters:**
+
+| Parameter     | Type   | Required | Description                          |
+|---------------|--------|----------|--------------------------------------|
+| limit         | number | No       | Max recent items (default 10)        |
+| days          | number | No       | Filter recent by last N days (e.g. 7, 30, 90) |
+| department_id | string | No       | Filter by department UUID           |
+| assigned_to   | string | No       | Filter by assignee user UUID        |
+
+**Success (200):**
+
+```json
+{
+  "requestCountsByStatus": { "draft": 5, "submitted": 3, "approved": 10 },
+  "recentRequests": [ { "id": "uuid", "requestId": "REQ-2026-12345", "title": "...", "status": "draft", "departmentName": "QA", "createdAt": "..." } ],
+  "recentTemplates": [ { "id": "uuid", "fileName": "SOP.docx", "status": "draft", "updatedAt": "..." } ]
+}
+```
+
+**Errors:**
+
+- `401` – Missing/invalid token
+- `500` – `{ "error": "Failed to get dashboard summary" }`
+
+---
+
+## 3. Health
 
 ### GET /api/health
 
@@ -124,7 +221,7 @@ Service health check.
 
 ---
 
-## 3. Departments
+## 4. Departments
 
 ### GET /api/departments
 
@@ -151,7 +248,7 @@ List all departments.
 
 ---
 
-## 4. Users
+## 5. Users
 
 ### GET /api/users
 
@@ -181,7 +278,7 @@ List users (for assignee/reviewer selection).
 
 ---
 
-## 5. Templates
+## 6. Templates
 
 ### GET /api/templates
 
@@ -252,6 +349,35 @@ Download template file (binary stream). Use for preview or Syncfusion.
 - `401` – Missing/invalid token
 - `404` – `{ "error": "Template not found" }` or `{ "error": "File not found on disk" }`
 - `500` – `{ "error": "Failed to serve file" }`
+
+---
+
+### GET /api/templates/:id/download
+
+Get a presigned download URL when the template file is stored in S3. If the template is stored locally only, returns 404.
+
+**Auth required:** Yes
+
+**Query parameters:**
+
+| Parameter | Type   | Required | Description                    |
+|-----------|--------|----------|--------------------------------|
+| expiresIn | number | No       | URL validity in seconds (max 86400, default from server) |
+
+**Success (200):**
+
+```json
+{
+  "downloadUrl": "https://...",
+  "expiresAt": "2026-02-26T11:00:00.000Z"
+}
+```
+
+**Errors:**
+
+- `401` – Missing/invalid token
+- `404` – `{ "error": "Template not found" }` or template not in S3
+- `500` – `{ "error": "Failed to get download URL" }`
 
 ---
 
@@ -328,11 +454,11 @@ Update template metadata and/or parsed sections.
 
 ---
 
-## 6. Requests
+## 7. Requests
 
 ### GET /api/requests
 
-List requests (for Raise Request / Document Library).
+List requests (for Raise Request / Document Library). Supports filters, search, pagination, and sort for role-specific libraries.
 
 **Auth required:** Yes
 
@@ -342,8 +468,18 @@ List requests (for Raise Request / Document Library).
 |---------------|--------|----------|--------------------|
 | department_id | string | No       | Filter by department UUID |
 | status        | string | No       | e.g. `draft`, `submitted` |
+| q             | string | No       | Search in title, request_id, department name (ILIKE) |
+| assigned_to   | string | No       | Filter by assignee user UUID |
+| from_date     | string | No       | Filter created_at >= (ISO date/timestamptz) |
+| to_date       | string | No       | Filter created_at <= (ISO date/timestamptz) |
+| sortBy        | string | No       | `created_at`, `title`, `status`, `request_id`, `department_name`, `assigned_to_name`, `updated_at` (default `created_at`) |
+| sortOrder     | string | No       | `asc` or `desc` (default `desc`) |
+| page          | number | No       | Page number (use with pageSize for paginated response) |
+| pageSize      | number | No       | Page size, max 500 (use with page for paginated response) |
 
-**Success (200):**
+When both `page` and `pageSize` are provided, the response is `{ data, total, page, pageSize }`. Otherwise the response is an array of requests.
+
+**Success (200):** Array of request DTOs, or when paginated: `{ "data": [...], "total": 42, "page": 1, "pageSize": 10 }`. Each item:
 
 ```json
 [
@@ -392,6 +528,55 @@ Get a single request by ID.
 
 ---
 
+### GET /api/requests/:id/activity
+
+Get audit log entries for a single request (activity timeline).
+
+**Auth required:** Yes
+
+**Path:** `:id` is the **request UUID**.
+
+**Query parameters:**
+
+| Parameter | Type   | Required | Description        |
+|-----------|--------|----------|--------------------|
+| limit     | number | No       | Max entries (default from server) |
+
+**Success (200):** Array of audit log entries (same shape as GET /api/audit-logs), filtered by `entity_type=request` and `entity_id=:id`.
+
+**Errors:**
+
+- `401` – Missing/invalid token
+- `500` – `{ "error": "Failed to get activity" }`
+
+---
+
+### GET /api/requests/:id/workflow
+
+Get workflow instance and steps for a request (runtime progression).
+
+**Auth required:** Yes
+
+**Success (200):** `{ id, requestId, workflowId, aiGeneratedDefinition, createdAt, steps: [...] }` or `{ requestId, workflowId: null, steps: [] }` when none. Each step: `id, stepOrder, name, assignedToUserId, assignedToName, status (pending|current|completed|rejected), startedAt, completedAt, metadata`.
+
+**Errors:** `401`, `404` (Request not found), `500`
+
+---
+
+### POST /api/requests/:id/workflow/actions
+
+Perform a workflow action on a request.
+
+**Auth required:** Yes
+
+**Request body (JSON):** `action` (required): `init`, `set_workflow`, `approve`, `reject`, `request_revision`. For `init`/`set_workflow`: optional `workflow_id`, `ai_generated_definition`. Optional `comment` for approve/reject/revision.
+
+**Success (200):** For `init`/`set_workflow`: workflow instance with steps. For `approve`/`reject`/`request_revision`: updated request DTO.
+
+**Errors:** `400` (Invalid action), `404` (Request not found), `500`
+
+---
+
 ### POST /api/requests
 
 Create a new request from a template (Raise Request).
@@ -416,7 +601,7 @@ Create a new request from a template (Raise Request).
 }
 ```
 
-**Success (201):**
+**Success (201):** Full request DTO (same shape as GET /api/requests/:id), e.g.:
 
 ```json
 {
@@ -425,8 +610,12 @@ Create a new request from a template (Raise Request).
   "requestId": "REQ-2026-12345",
   "title": "Annual Review 2026",
   "departmentId": "uuid-or-null",
+  "departmentName": "QA",
   "status": "draft",
   "createdBy": "uuid",
+  "assignedTo": null,
+  "assignedToName": null,
+  "templateFileName": "SOP.docx",
   "createdAt": "2026-02-26T10:00:00.000Z",
   "updatedAt": "2026-02-26T10:00:00.000Z"
 }
@@ -494,7 +683,7 @@ Update request (status, assignment, priority, etc.).
 
 ---
 
-## 7. Form Data
+## 8. Form Data
 
 ### GET /api/requests/:id/form-data
 
@@ -564,7 +753,7 @@ Create or update form data for a request.
 
 ---
 
-## 8. Documents
+## 9. Documents
 
 ### GET /api/documents
 
@@ -707,7 +896,7 @@ Update document metadata (currently only status).
 
 ---
 
-## 9. Audit Logs
+## 10. Audit Logs
 
 ### GET /api/audit-logs
 
@@ -756,7 +945,115 @@ List audit log entries with filters (for Audit Logs screen).
 
 ---
 
-## 10. Error Responses
+## 11. Workflows
+
+Workflow definitions and steps (for Configure Workflow / Workflow Rules UI). Runtime per request is under [Requests](#7-requests) (`GET /requests/:id/workflow`, `POST /requests/:id/workflow/actions`).
+
+### GET /api/workflows
+
+List workflows. Optional query: `template_id`, `department_id`, `is_active` (boolean).
+
+**Auth required:** Yes
+
+**Success (200):** Array of `{ id, name, description, isActive, appliesToTemplateId, appliesToDepartmentId, createdAt, updatedAt }`.
+
+---
+
+### GET /api/workflows/:id
+
+Get a single workflow.
+
+**Auth required:** Yes
+
+**Errors:** `404` – Workflow not found
+
+---
+
+### POST /api/workflows
+
+Create a workflow. Body: `name`, `description`, `is_active`, `applies_to_template_id`, `applies_to_department_id` (all optional except name).
+
+**Auth required:** Yes
+
+**Success (201):** Workflow DTO.
+
+---
+
+### PATCH /api/workflows/:id
+
+Update workflow. Body: same fields as create (all optional).
+
+**Auth required:** Yes
+
+**Errors:** `400` – No fields to update, `404` – Not found
+
+---
+
+### GET /api/workflows/:id/steps
+
+List steps for a workflow (ordered by step_order).
+
+**Auth required:** Yes
+
+**Success (200):** Array of `{ id, workflowId, stepOrder, name, roleKey, departmentId, isApprovalStep, metadata, createdAt }`.
+
+---
+
+### PUT /api/workflows/:id/steps
+
+Replace all steps for a workflow. Body: array of `{ step_order, name, role_key, department_id, is_approval_step, metadata }`.
+
+**Auth required:** Yes
+
+**Success (200):** Array of step DTOs (same as GET steps).
+
+---
+
+## 12. Workflow Rules
+
+Condition/action rules for selecting or applying workflows.
+
+### GET /api/workflow-rules
+
+List workflow rules. Optional query: `template_id`, `department_id`, `is_active`.
+
+**Auth required:** Yes
+
+**Success (200):** Array of `{ id, name, description, appliesToTemplateId, appliesToDepartmentId, conditionJson, actionJson, isActive, createdAt, updatedAt }`.
+
+---
+
+### GET /api/workflow-rules/:id
+
+Get a single workflow rule.
+
+**Auth required:** Yes
+
+**Errors:** `404` – Not found
+
+---
+
+### POST /api/workflow-rules
+
+Create a rule. Body: `name`, `description`, `applies_to_template_id`, `applies_to_department_id`, `condition_json`, `action_json`, `is_active`.
+
+**Auth required:** Yes
+
+**Success (201):** Rule DTO.
+
+---
+
+### PATCH /api/workflow-rules/:id
+
+Update a rule. Body: same fields (all optional).
+
+**Auth required:** Yes
+
+**Errors:** `400` – No fields to update, `404` – Not found
+
+---
+
+## 13. Error Responses
 
 All error responses are JSON with at least:
 
@@ -786,15 +1083,23 @@ Some endpoints add a `detail` field (e.g. PATCH request when DB schema is outdat
 | GET | /api/health | No | Health check |
 | POST | /api/auth/login | No | Login, get token |
 | GET | /api/auth/me | Yes | Current user |
+| POST | /api/auth/refresh | Yes | Re-issue JWT |
+| POST | /api/auth/forgot-password | No | Request password reset |
+| POST | /api/auth/reset-password | No | Reset password with token |
+| GET | /api/dashboard/summary | Yes | Dashboard summary (counts, recent requests/templates) |
 | GET | /api/departments | Yes | List departments |
 | GET | /api/users | Yes | List users |
 | GET | /api/templates | Yes | List templates |
 | GET | /api/templates/:id | Yes | Get template |
 | GET | /api/templates/:id/file | Yes | Template file stream |
+| GET | /api/templates/:id/download | Yes | Presigned S3 download URL (or 404) |
 | POST | /api/templates | Yes | Upload template (multipart) |
 | PATCH | /api/templates/:id | Yes | Update template |
 | GET | /api/requests | Yes | List requests |
 | GET | /api/requests/:id | Yes | Get request |
+| GET | /api/requests/:id/activity | Yes | Request activity/audit entries |
+| GET | /api/requests/:id/workflow | Yes | Request workflow instance and steps |
+| POST | /api/requests/:id/workflow/actions | Yes | Workflow action (init, approve, reject, etc.) |
 | POST | /api/requests | Yes | Create request |
 | PATCH | /api/requests/:id | Yes | Update request |
 | GET | /api/requests/:id/form-data | Yes | Get form data |
@@ -805,3 +1110,13 @@ Some endpoints add a `detail` field (e.g. PATCH request when DB schema is outdat
 | POST | /api/documents | Yes | Upload document (multipart) |
 | PATCH | /api/documents/:id | Yes | Update document status |
 | GET | /api/audit-logs | Yes | List audit logs |
+| GET | /api/workflows | Yes | List workflows |
+| GET | /api/workflows/:id | Yes | Get workflow |
+| GET | /api/workflows/:id/steps | Yes | List workflow steps |
+| PUT | /api/workflows/:id/steps | Yes | Replace workflow steps |
+| POST | /api/workflows | Yes | Create workflow |
+| PATCH | /api/workflows/:id | Yes | Update workflow |
+| GET | /api/workflow-rules | Yes | List workflow rules |
+| GET | /api/workflow-rules/:id | Yes | Get workflow rule |
+| POST | /api/workflow-rules | Yes | Create workflow rule |
+| PATCH | /api/workflow-rules/:id | Yes | Update workflow rule |

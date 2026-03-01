@@ -19,7 +19,9 @@
     { "key": "token", "value": "" },
     { "key": "requestId", "value": "" },
     { "key": "templateId", "value": "" },
-    { "key": "documentId", "value": "" }
+    { "key": "documentId", "value": "" },
+    { "key": "workflowId", "value": "" },
+    { "key": "ruleId", "value": "" }
   ],
   "item": [
     {
@@ -63,6 +65,66 @@
             "method": "GET",
             "url": "{{baseUrl}}/auth/me",
             "description": "Get current user profile. Requires Bearer token."
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/refresh",
+            "description": "Re-issue JWT. Requires valid Bearer token."
+          }
+        },
+        {
+          "name": "Forgot Password",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"admin\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/forgot-password",
+            "description": "Request password reset. Body: username."
+          }
+        },
+        {
+          "name": "Reset Password",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"<reset-token>\",\n  \"newPassword\": \"newPassword123\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/reset-password",
+            "description": "Reset password with token from forgot-password."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Dashboard",
+      "item": [
+        {
+          "name": "Get Dashboard Summary",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/summary?limit=10&days=&department_id=&assigned_to=",
+              "host": ["{{baseUrl}}"],
+              "path": ["dashboard", "summary"],
+              "query": [
+                { "key": "limit", "value": "10", "disabled": true },
+                { "key": "days", "value": "7", "disabled": true },
+                { "key": "department_id", "value": "", "disabled": true },
+                { "key": "assigned_to", "value": "", "disabled": true }
+              ]
+            },
+            "description": "Request counts by status, recent requests, recent templates."
           }
         }
       ]
@@ -143,6 +205,19 @@
           }
         },
         {
+          "name": "Get Template Download (Presigned URL)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/templates/{{templateId}}/download?expiresIn=3600",
+              "host": ["{{baseUrl}}"],
+              "path": ["templates", "{{templateId}}", "download"],
+              "query": [{ "key": "expiresIn", "value": "3600" }]
+            },
+            "description": "When template is in S3, returns { downloadUrl, expiresAt }. Otherwise 404."
+          }
+        },
+        {
           "name": "Upload Template",
           "request": {
             "method": "POST",
@@ -201,6 +276,14 @@
           }
         },
         {
+          "name": "Get Request Activity",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/requests/{{requestId}}/activity",
+            "description": "Audit log entries for this request."
+          }
+        },
+        {
           "name": "Create Request",
           "event": [
             {
@@ -225,6 +308,27 @@
             },
             "url": "{{baseUrl}}/requests",
             "description": "Create request from template. template_id required. Saves requestId to collection."
+          }
+        },
+        {
+          "name": "Get Request Workflow",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/requests/{{requestId}}/workflow",
+            "description": "Get workflow instance and steps for a request (runtime)."
+          }
+        },
+        {
+          "name": "Post Request Workflow Action",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"approve\",\n  \"comment\": \"Approved for release\"\n}"
+            },
+            "url": "{{baseUrl}}/requests/{{requestId}}/workflow/actions",
+            "description": "Action: init, set_workflow, approve, reject, request_revision. For init/set_workflow add workflow_id, ai_generated_definition."
           }
         },
         {
@@ -372,6 +476,139 @@
               ]
             },
             "description": "List audit logs. Query: entity_type, entity_id, user_id, request_id, date_range (today|week|month), from_date, to_date, limit (default 100, max 500)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Workflows",
+      "item": [
+        {
+          "name": "List Workflows",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/workflows?template_id=&department_id=&is_active=",
+              "host": ["{{baseUrl}}"],
+              "path": ["workflows"],
+              "query": [
+                { "key": "template_id", "value": "", "disabled": true },
+                { "key": "department_id", "value": "", "disabled": true },
+                { "key": "is_active", "value": "true", "disabled": true }
+              ]
+            },
+            "description": "List workflow definitions. Optional: template_id, department_id, is_active."
+          }
+        },
+        {
+          "name": "Create Workflow",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Standard Approval\",\n  \"description\": \"Default approval process\",\n  \"is_active\": true\n}"
+            },
+            "url": "{{baseUrl}}/workflows",
+            "description": "Create workflow. Body: name, description, is_active, applies_to_template_id, applies_to_department_id."
+          }
+        },
+        {
+          "name": "Get Workflow by ID",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/workflows/{{workflowId}}",
+            "description": "Get single workflow. Set workflowId in collection variables."
+          }
+        },
+        {
+          "name": "Get Workflow Steps",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/workflows/{{workflowId}}/steps",
+            "description": "List steps for a workflow."
+          }
+        },
+        {
+          "name": "Update Workflow Steps",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  { \"step_order\": 0, \"name\": \"Initial Review\", \"role_key\": \"reviewer\", \"is_approval_step\": true },\n  { \"step_order\": 1, \"name\": \"Approval\", \"role_key\": \"approver\", \"is_approval_step\": true }\n]"
+            },
+            "url": "{{baseUrl}}/workflows/{{workflowId}}/steps",
+            "description": "Replace all steps. Body: array of { step_order, name, role_key, department_id, is_approval_step, metadata }."
+          }
+        },
+        {
+          "name": "Update Workflow",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Standard Approval\",\n  \"is_active\": true\n}"
+            },
+            "url": "{{baseUrl}}/workflows/{{workflowId}}",
+            "description": "Update workflow. Body: name, description, is_active, applies_to_template_id, applies_to_department_id."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Workflow Rules",
+      "item": [
+        {
+          "name": "List Workflow Rules",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/workflow-rules?template_id=&department_id=&is_active=",
+              "host": ["{{baseUrl}}"],
+              "path": ["workflow-rules"],
+              "query": [
+                { "key": "template_id", "value": "", "disabled": true },
+                { "key": "department_id", "value": "", "disabled": true },
+                { "key": "is_active", "value": "true", "disabled": true }
+              ]
+            },
+            "description": "List workflow rules. Optional: template_id, department_id, is_active."
+          }
+        },
+        {
+          "name": "Create Workflow Rule",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Default workflow for QA\",\n  \"description\": \"Apply standard workflow for QA department\",\n  \"applies_to_department_id\": null,\n  \"condition_json\": {},\n  \"action_json\": {},\n  \"is_active\": true\n}"
+            },
+            "url": "{{baseUrl}}/workflow-rules",
+            "description": "Create workflow rule. Body: name, description, applies_to_template_id, applies_to_department_id, condition_json, action_json, is_active."
+          }
+        },
+        {
+          "name": "Get Workflow Rule by ID",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/workflow-rules/{{ruleId}}",
+            "description": "Get single workflow rule."
+          }
+        },
+        {
+          "name": "Update Workflow Rule",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"is_active\": false\n}"
+            },
+            "url": "{{baseUrl}}/workflow-rules/{{ruleId}}",
+            "description": "Update workflow rule."
           }
         }
       ]
