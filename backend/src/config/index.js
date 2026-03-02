@@ -22,4 +22,15 @@ module.exports = {
     accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
   },
+  /** SMTP for document/notification emails */
+  smtp: {
+    host: process.env.SMTP_HOST || '',
+    port: parseInt(process.env.SMTP_PORT || '587', 10),
+    user: process.env.SMTP_USER || '',
+    password: process.env.SMTP_PASSWORD || '',
+    from: process.env.EMAIL_FROM || process.env.SMTP_USER || '',
+    fromName: process.env.EMAIL_FROM_NAME || 'PHARMA DMS',
+  },
+  /** Fallback domain when user has no email (e.g. username@this-domain) */
+  emailDomain: process.env.EMAIL_DOMAIN || 'fedhubsoftware.com',
 };
