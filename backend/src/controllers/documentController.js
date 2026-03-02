@@ -1,6 +1,7 @@
 const path = require('path');
 const fileStorage = require('../services/fileStorage');
 const documentService = require('../services/documentService');
+const emailService = require('../services/emailService');
 
 async function list(req, res) {
   try {
@@ -59,6 +60,15 @@ async function upload(req, res) {
     const { request_id } = req.body || {};
     const result = await documentService.create(req.file, request_id, req.user.id);
     res.status(201).json(result);
+    if (emailService.isEmailConfigured()) {
+      emailService
+        .sendDocumentUploadNotification({
+          document: result,
+          uploaderUserId: req.user.id,
+          requestId: result.requestId || request_id,
+        })
+        .catch((err) => console.error('Document upload email error:', err));
+    }
   } catch (err) {
     if (err.statusCode === 400) {
       return res.status(400).json({ error: err.message });
@@ -74,11 +84,28 @@ async function update(req, res) {
     if (status === undefined) {
       return res.status(400).json({ error: 'No fields to update' });
     }
+    const docBefore = await documentService.getById(req.params.id);
+    if (!docBefore) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
     const result = await documentService.updateStatus(req.params.id, status);
     if (!result) {
       return res.status(404).json({ error: 'Document not found' });
     }
     res.json(result);
+    if (emailService.isEmailConfigured() && docBefore.status !== result.status) {
+      emailService
+        .sendDocumentStatusChangeNotification({
+          documentId: result.id,
+          fileName: docBefore.fileName,
+          requestId: docBefore.requestId,
+          oldStatus: docBefore.status,
+          newStatus: result.status,
+          updatedByUserId: req.user.id,
+          createdByUserId: docBefore.createdBy,
+        })
+        .catch((err) => console.error('Document status change email error:', err));
+    }
   } catch (err) {
     console.error('Document patch error:', err);
     res.status(500).json({ error: 'Failed to update document' });
