@@ -42,6 +42,9 @@ async function list(filters = {}) {
     sortOrder = 'desc',
     page,
     pageSize,
+    view,
+    userId,
+    userRole,
   } = filters;
 
   const params = [];
@@ -71,6 +74,20 @@ async function list(filters = {}) {
   if (to_date) {
     conditions.push(`r.created_at <= $${idx++}::timestamptz`);
     params.push(to_date);
+  }
+  const normalizedRole = (userRole || '').toLowerCase();
+  if (view === 'raise') {
+    if (normalizedRole !== 'admin' && userId) {
+      conditions.push(`r.created_by = $${idx++}`);
+      params.push(userId);
+    }
+  } else if (view === 'library') {
+    conditions.push(`r.status <> 'draft'`);
+    if (normalizedRole !== 'admin' && userId) {
+      conditions.push(`(r.created_by = $${idx} OR r.assigned_to = $${idx})`);
+      params.push(userId);
+      idx += 1;
+    }
   }
   const whereClause = conditions.length ? ` AND ${conditions.join(' AND ')}` : '';
 

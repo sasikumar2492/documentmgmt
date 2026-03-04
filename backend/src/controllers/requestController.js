@@ -15,10 +15,12 @@ async function list(req, res) {
       sortOrder,
       page,
       pageSize,
+      view,
     } = req.query;
+    const effectiveStatus = status || (view === 'raise' ? 'draft' : undefined);
     const result = await requestService.list({
       department_id,
-      status,
+      status: effectiveStatus,
       q,
       assigned_to,
       from_date,
@@ -27,6 +29,9 @@ async function list(req, res) {
       sortOrder,
       page,
       pageSize,
+      view,
+      userId: req.user && req.user.id,
+      userRole: req.user && req.user.role,
     });
     res.json(result);
   } catch (err) {
