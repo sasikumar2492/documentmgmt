@@ -26,8 +26,37 @@ export interface FormDataApi {
   updatedAt: string | null;
 }
 
-export async function getRequests(params?: { department_id?: string; status?: string }): Promise<RequestApi[]> {
-  const { data } = await apiClient.get<RequestApi[]>('/requests', { params });
+export interface RequestListParams {
+  department_id?: string;
+  status?: string;
+  q?: string;
+  assigned_to?: string;
+  from_date?: string;
+  to_date?: string;
+  sortBy?:
+    | 'created_at'
+    | 'title'
+    | 'status'
+    | 'request_id'
+    | 'department_name'
+    | 'assigned_to_name'
+    | 'updated_at';
+  sortOrder?: 'asc' | 'desc';
+  page?: number;
+  pageSize?: number;
+}
+
+export type RequestListResponse =
+  | RequestApi[]
+  | {
+      data: RequestApi[];
+      total: number;
+      page: number;
+      pageSize: number;
+    };
+
+export async function getRequests(params?: RequestListParams): Promise<RequestListResponse> {
+  const { data } = await apiClient.get<RequestListResponse>('/requests', { params });
   return data;
 }
 
@@ -72,3 +101,78 @@ export async function putFormData(
   const { data } = await apiClient.put<FormDataApi>(`/requests/${requestId}/form-data`, body);
   return data;
 }
+
+export interface RequestActivityEntry {
+  id: string;
+  timestamp: string;
+  action: string;
+  entityType?: string;
+  entityId?: string;
+  entityName?: string;
+  user?: string;
+  userRole?: string;
+  department?: string;
+  details?: string;
+  ipAddress?: string;
+  requestId?: string;
+}
+
+export async function getRequestActivity(
+  requestId: string,
+  params?: { limit?: number }
+): Promise<RequestActivityEntry[]> {
+  const { data } = await apiClient.get<RequestActivityEntry[]>(
+    `/requests/${requestId}/activity`,
+    { params }
+  );
+  return data;
+}
+
+export interface RequestWorkflowStep {
+  id: string;
+  stepOrder: number;
+  name: string;
+  assignedToUserId?: string | null;
+  assignedToName?: string | null;
+  status: 'pending' | 'current' | 'completed' | 'rejected' | string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  metadata?: unknown;
+}
+
+export interface RequestWorkflowInstance {
+  id?: string;
+  requestId: string;
+  workflowId: string | null;
+  aiGeneratedDefinition?: unknown;
+  createdAt?: string;
+  steps: RequestWorkflowStep[];
+}
+
+export async function getRequestWorkflow(
+  requestId: string
+): Promise<RequestWorkflowInstance> {
+  const { data } = await apiClient.get<RequestWorkflowInstance>(
+    `/requests/${requestId}/workflow`
+  );
+  return data;
+}
+
+export interface RequestWorkflowActionBody {
+  action: 'init' | 'set_workflow' | 'approve' | 'reject' | 'request_revision' | string;
+  comment?: string;
+  workflow_id?: string;
+  ai_generated_definition?: unknown;
+}
+
+export async function postRequestWorkflowAction(
+  requestId: string,
+  body: RequestWorkflowActionBody
+): Promise<RequestWorkflowInstance | RequestApi> {
+  const { data } = await apiClient.post<RequestWorkflowInstance | RequestApi>(
+    `/requests/${requestId}/workflow/actions`,
+    body
+  );
+  return data;
+}
+

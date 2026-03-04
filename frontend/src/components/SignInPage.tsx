@@ -5,7 +5,7 @@ import { Label } from './ui/label';
 import { Checkbox } from './ui/checkbox';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Separator } from './ui/separator';
-import { FileText, HelpCircle, ArrowRight, ArrowLeft, Shield, Users, CheckCircle, UserCheck, Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { FileText, HelpCircle, ArrowRight, Shield, Users, CheckCircle, UserCheck, Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -90,20 +90,6 @@ export const SignInPage: React.FC<SignInPageProps> = ({ loginData, onLoginDataCh
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50">
-      {/* Back to Home Button */}
-      {onBackToHome && (
-        <div className="absolute top-6 left-6 z-10">
-          <Button
-            onClick={onBackToHome}
-            variant="outline"
-            className="gap-2 bg-white shadow-sm hover:bg-slate-50 text-slate-600 border-slate-200"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back to Home
-          </Button>
-        </div>
-      )}
-      
       {/* Main Content - Two Column Layout */}
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="w-full max-w-6xl flex gap-12 items-center">

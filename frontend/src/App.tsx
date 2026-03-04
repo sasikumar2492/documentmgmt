@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, FileCheck, GraduationCap, TrendingUp, GitCompare } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { TemplateData, ReportData, FormData, ViewType, NotificationData, FormSection, UserRole, AIWorkflowStep, AuditLogEntry, TrainingRecord, DepartmentData } from './types';
@@ -71,16 +71,19 @@ import { setAuthToken, setOnUnauthorized } from './api/client';
 import type { AuthUser } from './api/auth';
 import { getTemplates, uploadTemplate, updateTemplate, getTemplateFileBlob, exportSfdtToDocx } from './api/templates';
 import { getDepartments } from './api/departments';
+// Note: legacy /documents API removed; templates are now the source of truth.
+import { getAuditLogs } from './api/auditLogs';
 import {
   getRequests,
   createRequest,
   updateRequest,
   getFormData,
   putFormData,
+  postRequestWorkflowAction,
 } from './api/requests';
 
 export default function App() {
-  const [showHomePage, setShowHomePage] = useState(true);
+  const [showHomePage, setShowHomePage] = useState(false);
   const [isSubmissionModalOpen, setIsSubmissionModalOpen] = useState(false);
   const [pendingSubmissionData, setPendingSubmissionData] = useState<{ id: string; title: string } | null>(null);
   const [showTicketFlowLogin, setShowTicketFlowLogin] = useState(false);
@@ -104,6 +107,10 @@ export default function App() {
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
   const [currentPage, setCurrentPage] = useState(1);
   const [currentDocumentId, setCurrentDocumentId] = useState<string | null>(null);
+  /** When opening a draft for edit, SFDT loaded from API so editor gets it even before currentFormData updates */
+  const [loadedSfdtForEditor, setLoadedSfdtForEditor] = useState<string | null>(null);
+  /** Ref so editor receives draft SFDT on first render (state may not have committed yet) */
+  const loadedSfdtRef = useRef(null);
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
   const [selectedDepartment, setSelectedDepartment] = useState<string>('');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -142,6 +149,7 @@ export default function App() {
     fileType: string;
   } | null>(null);
   const [departments, setDepartments] = useState<DepartmentData[]>([]);
+  const [hasLoadedRequests, setHasLoadedRequests] = useState(false);
   
   // Restore session from stored token
   useEffect(() => {
@@ -156,6 +164,9 @@ export default function App() {
         setAuthUser(user);
         setLoginData((prev) => ({ ...prev, username: user.username, role: user.role as UserRole }));
         setIsSignedIn(true);
+        // Load dashboard according to role
+        if (user.role === 'admin') setCurrentView('admin-home');
+        else setCurrentView('dashboard');
       })
       .catch(() => clearAuth())
       .finally(() => setAuthLoading(false));
@@ -171,8 +182,8 @@ export default function App() {
     return () => setOnUnauthorized(null as any);
   }, []);
 
-  // Fetch templates and departments from API when signed in
-  useEffect(() => {
+  // Lazy loaders so we don't call all APIs on initial dashboard load
+  const loadTemplatesAndDepartmentsIfNeeded = () => {
     if (!authUser) return;
     getTemplates()
       .then((list) => {
@@ -197,19 +208,24 @@ export default function App() {
         if (deps) setDepartments(deps);
       })
       .catch(() => {});
-  }, [authUser]);
+  };
 
-  // Fetch requests (Raise Request / Document Library) when signed in
-  const fetchRequestsAsReports = () => {
+  // Fetch requests (Raise Request / Document Library) lazily when needed
+  const fetchRequestsAsReports = (force = false) => {
     if (!authUser) return;
+    if (!force && hasLoadedRequests) return;
     getRequests()
       .then((list) => {
-        const mapped: ReportData[] = list.map((r) => ({
+        const array = Array.isArray(list) ? list : list.data;
+        const mapped: ReportData[] = array.map((r) => ({
           id: r.id,
           requestId: r.requestId,
           templateId: r.templateId,
           fileName: r.templateFileName || 'Document',
-          uploadDate: typeof r.createdAt === 'string' ? r.createdAt.split('T')[0] : new Date().toISOString().split('T')[0],
+          uploadDate:
+            typeof r.createdAt === 'string'
+              ? r.createdAt.split('T')[0]
+              : new Date().toISOString().split('T')[0],
           assignedTo: r.assignedTo || '',
           assignedToName: r.assignedToName ?? undefined,
           department: r.departmentName || undefined,
@@ -222,13 +238,26 @@ export default function App() {
           submissionComments: r.submissionComments ?? undefined,
         }));
         setReports(mapped);
+        setHasLoadedRequests(true);
       })
       .catch(() => {});
   };
-  useEffect(() => {
+
+  // Legacy documents API removed - DocumentLibrary now uses templates + requests state.
+  const fetchDocumentsForLibrary = () => {
+    // Kept for backwards compatibility hook; no-op because DocumentLibrary reads from reports/templates.
+    return;
+  };
+
+  // Fetch audit logs from backend for Audit Logs page
+  const fetchAuditLogs = () => {
     if (!authUser) return;
-    fetchRequestsAsReports();
-  }, [authUser]);
+    getAuditLogs()
+      .then((list) => {
+        setAuditLogs(list || []);
+      })
+      .catch(() => {});
+  };
 
   const currentUser = authUser
     ? {
@@ -237,7 +266,7 @@ export default function App() {
         email: authUser.username,
         role: authUser.role,
         isAdmin: authUser.role === 'admin',
-        department: authUser.departmentId || 'Engineering'
+        department: authUser.departmentName ?? (departments.find((d) => d.id === authUser.departmentId)?.name ?? authUser.departmentId ?? 'Engineering')
       }
     : {
         id: '1',
@@ -411,6 +440,7 @@ export default function App() {
 
   // Audit Logs system state
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [documents, setDocuments] = useState<any[]>([]);
 
   // Training Management system state
   const [trainingRecords, setTrainingRecords] = useState<TrainingRecord[]>([]);
@@ -438,29 +468,73 @@ export default function App() {
     }
   };
 
-  const loadFormData = async (reportId: string) => {
+  /** Extract _sfdt string from form data (API may return object or stringified JSON) */
+  const getSfdtFromFormData = (data: unknown): string | undefined => {
+    if (data == null) return undefined;
+    let obj: Record<string, unknown>;
+    if (typeof data === 'string') {
+      try {
+        obj = JSON.parse(data) as Record<string, unknown>;
+      } catch {
+        return undefined;
+      }
+    } else if (typeof data === 'object' && data !== null) {
+      obj = data as Record<string, unknown>;
+    } else {
+      return undefined;
+    }
+    const _sfdt = obj._sfdt;
+    if (typeof _sfdt === 'string') return _sfdt;
+    if (typeof _sfdt === 'object' && _sfdt !== null) return JSON.stringify(_sfdt);
+    return undefined;
+  };
+
+  /** Quick check that a Blob looks like a real DOCX (ZIP starting with "PK\u0003\u0004"). */
+  const isLikelyDocxBlob = async (blob: Blob): Promise<boolean> => {
+    try {
+      const header = await blob.slice(0, 4).arrayBuffer();
+      const bytes = new Uint8Array(header);
+      // 'P' = 80, 'K' = 75, 3, 4 – standard ZIP local file header signature
+      return bytes.length === 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
+    } catch {
+      return false;
+    }
+  };
+
+  /** Load form data for a report. Returns the draft SFDT if present (so caller can open editor with it). */
+  const loadFormData = async (reportId: string): Promise<string | null> => {
     const report = reports.find((r) => r.id === reportId);
+    let draftSfdt: string | null = null;
     if (report?.templateId) {
       try {
         const res = await getFormData(reportId);
-        if (res.data && typeof res.data === 'object' && Object.keys(res.data).length > 0) {
-          const formData = res.data as FormData;
+        const formDataObj = res?.data;
+        if (formDataObj != null && (typeof formDataObj === 'object' && Object.keys(formDataObj as object).length > 0 || typeof formDataObj === 'string')) {
+          let formData: FormData;
+          try {
+            formData = (typeof formDataObj === 'string' ? JSON.parse(formDataObj) : formDataObj) as FormData;
+          } catch {
+            formData = formDataObj as FormData;
+          }
+          draftSfdt = getSfdtFromFormData(formDataObj) ?? null;
+          loadedSfdtRef.current = draftSfdt;
+          setLoadedSfdtForEditor(draftSfdt);
           setCurrentFormData(formData);
-          // Update the reports state to include the loaded formData (which may contain _sfdt from backend)
-          setReports(prev => prev.map(r => 
-            r.id === reportId 
-              ? { ...r, formData }
-              : r
+          setReports(prev => prev.map(r =>
+            r.id === reportId ? { ...r, formData } : r
           ));
-          return;
+          return draftSfdt;
         }
       } catch (_) {}
     }
+    loadedSfdtRef.current = null;
+    setLoadedSfdtForEditor(null);
     if (report && report.formData) {
       setCurrentFormData(report.formData);
     } else {
       setCurrentFormData(defaultFormData || currentFormData);
     }
+    return null;
   };
 
   const handleSignIn = async (e: React.FormEvent) => {
@@ -476,11 +550,10 @@ export default function App() {
       setIsSignedIn(true);
       if (intendedModule === 'ticket-flow') {
         setCurrentView('ticket-flow');
-      } else if (data.user.role.toLowerCase().includes('approver')) {
-        setCurrentView('document-library');
       } else if (data.user.role === 'admin') {
         setCurrentView('admin-home');
       } else {
+        // Preparator, reviewer, approver: load their dashboard
         setCurrentView('dashboard');
       }
       setIntendedModule(null);
@@ -541,6 +614,43 @@ export default function App() {
   const handleViewChange = (view: ViewType) => {
     setPreviousView(currentView);
     setCurrentView(view);
+
+    // Lazy load API data only when needed for a view
+    const viewsNeedingTemplates: ViewType[] = [
+      'upload-templates',
+      'document-management',
+      'document-library',
+      'workflows',
+      'configure-workflow',
+      'training-management',
+      'document-effectiveness',
+      'document-publishing',
+      'dynamic-form',
+      'syncfusion-editor',
+      'document-edit-screen-fixed',
+      'departments',
+      'user-management',
+      'department-setup',
+    ];
+    const viewsNeedingRequests: ViewType[] = [
+      'reports',
+      'document-library',
+      'raise-request',
+    ];
+
+    if (viewsNeedingTemplates.includes(view)) {
+      loadTemplatesAndDepartmentsIfNeeded();
+    }
+    if (viewsNeedingRequests.includes(view)) {
+      fetchRequestsAsReports();
+    }
+    if (view === 'document-library' || view === 'document-publishing') {
+      fetchDocumentsForLibrary();
+    }
+    if (view === 'audit-logs') {
+      fetchAuditLogs();
+    }
+
     if (view === 'approval-form' || view === 'dynamic-form' || view === 'syncfusion-editor') {
       setCurrentPage(1);
     }
@@ -702,6 +812,21 @@ export default function App() {
         parsed_sections: updatedSections,
       });
 
+      // If there is an existing request for this template, PATCH it as well so
+      // backend metadata stays in sync with the converted template.
+      const relatedRequest = reports
+        .filter((r) => r.templateId === templateId)
+        .sort(
+          (a, b) =>
+            new Date(b.updatedAt || b.createdAt).getTime() -
+            new Date(a.updatedAt || a.createdAt).getTime()
+        )[0];
+      if (relatedRequest) {
+        await updateRequest(relatedRequest.id, {
+          status: (relatedRequest.status as string) || 'draft',
+        });
+      }
+
       setTemplates((prev) => {
         const others = prev.filter((t) => t.id !== templateId);
         return [
@@ -757,10 +882,16 @@ export default function App() {
     if (report) {
       setCurrentDocumentId(report.id);
       setIsEditMode(false);
-      const template = templates.find(t => t.fileName === report.fileName);
       await loadFormData(report.id);
       // Always use DocumentEditScreen with Syncfusion editor
       setCurrentView('document-edit-screen-fixed');
+      return;
+    }
+
+    // If no existing request, treat this as a template row (templates-only view)
+    const template = templates.find(t => t.id === requestIdOrReportId);
+    if (template) {
+      await handleFormSelection(template.id);
     }
   };
 
@@ -769,11 +900,14 @@ export default function App() {
     if (report) {
       setCurrentDocumentId(report.id);
       setIsEditMode(true);
-      const template = templates.find(t => t.fileName === report.fileName);
-      await loadFormData(report.id);
-      
-      // Always use DocumentEditScreen with Syncfusion editor
-      setCurrentView('document-edit-screen-fixed');
+      const draftSfdt = await loadFormData(report.id);
+      if (report.templateId && templates.some(t => t.id === report.templateId)) {
+        loadedSfdtRef.current = draftSfdt;
+        setLoadedSfdtForEditor(draftSfdt);
+        setCurrentView('syncfusion-editor');
+      } else {
+        setCurrentView('document-edit-screen-fixed');
+      }
     }
   };
 
@@ -784,6 +918,23 @@ export default function App() {
       // Use DocumentEditScreen with Syncfusion editor instead of approval-form
       setCurrentView('document-edit-screen-fixed');
       setCurrentDocumentId(templateId);
+      return;
+    }
+    // If user already has a draft (pending request) for this template, open it instead of creating a new one
+    const draftsForTemplate = reports.filter(
+      (r) => r.templateId === templateId && (r.status === 'pending' || (r.status as string) === 'draft')
+    );
+    const existingDraft = draftsForTemplate.length > 0
+      ? draftsForTemplate.sort((a, b) => new Date(b.lastModified || 0).getTime() - new Date(a.lastModified || 0).getTime())[0]
+      : null;
+    if (existingDraft) {
+      setCurrentDocumentId(existingDraft.id);
+      setIsEditMode(true);
+      const draftSfdt = await loadFormData(existingDraft.id);
+      loadedSfdtRef.current = draftSfdt;
+      setLoadedSfdtForEditor(draftSfdt);
+      setCurrentView('syncfusion-editor');
+      toast.success('Opening your saved draft');
       return;
     }
     try {
@@ -804,6 +955,8 @@ export default function App() {
       setReports((prev) => [newReport, ...prev]);
       setCurrentDocumentId(req.id);
       await loadFormData(req.id);
+      loadedSfdtRef.current = null;
+      setLoadedSfdtForEditor(null);
       setCurrentView('syncfusion-editor');
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to create request');
@@ -816,26 +969,50 @@ export default function App() {
   };
 
   const handlePreviewDocument = async (reportId: string) => {
-    const report = reports.find((r) => r.id === reportId);
-    if (!report) return;
-    if (report.templateId && !report.formData) {
-      try {
-        const res = await getFormData(reportId);
-        // For Syncfusion-based requests, keep the raw data object so we can read the saved SFDT (_sfdt)
-        const withFormData = { ...report, formData: res.data as unknown as FormData };
-        setSelectedReportForPreview(withFormData);
-      } catch (_) {
+    let report = reports.find((r) => r.id === reportId);
+
+    // If this was a templateId from DocumentLibrary, map it to an existing request first
+    if (!report) {
+      report = reports.find((r) => r.templateId === reportId);
+    }
+
+    if (report) {
+      // For template-based documents, always fetch the latest form data so preview shows the updated Word file.
+      if (report.templateId) {
+        try {
+          const res = await getFormData(reportId);
+          const formDataObj = (res as Record<string, unknown>)?.data ?? res;
+          const withFormData = { ...report, formData: formDataObj as FormData };
+          // Keep reports state in sync so future downloads also see the latest _sfdt
+          setReports((prev) =>
+            prev.map((r) => (r.id === reportId ? (withFormData as ReportData) : r))
+          );
+          setSelectedReportForPreview(withFormData);
+        } catch (_) {
+          setSelectedReportForPreview(report);
+        }
+      } else {
         setSelectedReportForPreview(report);
       }
-    } else {
-      setSelectedReportForPreview(report);
+      setCurrentView('document-preview');
     }
-    setCurrentView('document-preview');
   };
 
   const handleDownloadDocument = async (reportId: string, fileName: string) => {
+    // First try to treat this as a request/report download
     const report = reports.find((r) => r.id === reportId);
+    // If no matching request, fall back to template download (templates-only rows in Document Library)
     if (!report) {
+      // Maybe this is a templateId from DocumentLibrary – try to find a related request
+      const relatedReport = reports.find((r) => r.templateId === reportId);
+      if (relatedReport) {
+        return handleDownloadDocument(relatedReport.id, fileName);
+      }
+      const template = templates.find((t) => t.id === reportId);
+      if (template) {
+        await handleDownloadTemplate(template.id, fileName || template.fileName || 'document');
+        return;
+      }
       toast.error('Document not found', { description: 'The selected document could not be found.' });
       return;
     }
@@ -843,32 +1020,70 @@ export default function App() {
     try {
       toast.info('Download started', { description: `Downloading ${fileName || report.fileName}...` });
 
-      // For API-backed requests that came from a template, check for edited SFDT first
       if (report.templateId) {
-        let blob: Blob;
-        
-        // Check if there's an updated SFDT version (user edited the document)
-        const hasUpdatedSfdt = report.formData && (report.formData as any)._sfdt;
-        if (hasUpdatedSfdt) {
-          // Download the edited version
-          blob = await exportSfdtToDocx((report.formData as any)._sfdt, fileName || report.fileName || 'document.docx');
-          toast.info('Downloading edited version', { description: 'Converting modified document...' });
-        } else {
-          // Download the original template
-          blob = await getTemplateFileBlob(report.templateId);
+        let sfdt: string | undefined = getSfdtFromFormData(report.formData);
+
+        // Always fetch form data from API for template-based reports so we get the saved draft, not stale in-memory data
+        if (!sfdt) {
+          try {
+            const res = await getFormData(reportId);
+            const raw = (res as Record<string, unknown>)?.data ?? res;
+            sfdt = getSfdtFromFormData(raw);
+            if (sfdt && raw && typeof raw === 'object') {
+              setReports((prev) => prev.map((r) => (r.id === reportId ? { ...r, formData: raw as FormData } : r)));
+            }
+          } catch (e) {
+            console.warn('Form data fetch for download failed', e);
+          }
         }
-        
-        const url = URL.createObjectURL(blob);
+
+        const originalName = fileName || report.fileName || 'document.docx';
+        const originalExtMatch = originalName.match(/\.(docx?|doc)$/i);
+        const originalExt = originalExtMatch ? originalExtMatch[0] : '.docx';
+        const baseNameWithoutExt = originalName.replace(/\.(docx?|doc)$/i, '') || 'document';
+        // When exporting from SFDT we always produce a DOCX
+        const exportedFileName = `${baseNameWithoutExt}.docx`;
+
+        if (sfdt && sfdt.length > 0) {
+          const exportedBlob = await exportSfdtToDocx(sfdt, exportedFileName);
+          const looksLikeDocx = await isLikelyDocxBlob(exportedBlob);
+
+          if (looksLikeDocx) {
+            const url = URL.createObjectURL(exportedBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = exportedFileName;
+            a.rel = 'noopener';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            toast.success('Download completed');
+            return;
+          }
+
+          console.error('Exported SFDT blob does not look like a DOCX – falling back to original template download.');
+          toast.error('Unable to export edited document', {
+            description: 'Falling back to the original template file. Please check the Syncfusion document server.',
+          });
+        }
+
+        // Either no saved draft or export failed validation: download the original template file
+        const originalBlob = await getTemplateFileBlob(report.templateId);
+        const fallbackUrl = URL.createObjectURL(originalBlob);
         const a = document.createElement('a');
-        a.href = url;
-        a.download = fileName || report.fileName || 'document';
+        a.href = fallbackUrl;
+        // Use the original file's extension so Word does not complain about mismatched format
+        a.download = baseNameWithoutExt + originalExt;
+        a.rel = 'noopener';
+        document.body.appendChild(a);
         a.click();
-        URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        URL.revokeObjectURL(fallbackUrl);
         toast.success('Download completed');
         return;
       }
 
-      // Fallback for non-template seeded demo data (no backend file yet)
       toast.error('Download not available', {
         description: 'This demo document does not have an attached file to download yet.',
       });
@@ -936,12 +1151,17 @@ export default function App() {
   const handleSyncfusionSave = async (sfdt: string) => {
     const report = currentDocumentId ? reports.find((r) => r.id === currentDocumentId) : null;
     if (!report?.templateId || !currentDocumentId) return;
-    setCurrentFormData((prev) => ({ ...prev, _sfdt: sfdt } as FormData));
+    setCurrentFormData((prev) => ({ ...(prev || {}), _sfdt: sfdt } as FormData));
     try {
       const template = templates.find((t) => t.id === report.templateId);
+      const base = (currentFormData || {}) as Record<string, unknown>;
       await putFormData(currentDocumentId, {
-        data: { ...(currentFormData as Record<string, unknown>), _sfdt: sfdt },
+        data: { ...base, _sfdt: sfdt },
         formSectionsSnapshot: template?.parsedSections ?? undefined,
+      });
+      // Also touch the request record so backend updates metadata (e.g. updatedAt/status)
+      await updateRequest(currentDocumentId, {
+        status: (report.status as string) || 'draft',
       });
       
       // Update the reports state with the new SFDT so downloads work correctly
@@ -973,6 +1193,10 @@ export default function App() {
         await putFormData(currentDocumentId, {
           data: currentFormData as Record<string, unknown>,
           formSectionsSnapshot: template?.parsedSections ?? undefined,
+        });
+        // Ensure corresponding request record is patched when saving from Raise Request flow
+        await updateRequest(currentDocumentId, {
+          status: (report.status as string) || 'draft',
         });
         toast.success('Form saved');
       } catch (_) {
@@ -1036,6 +1260,28 @@ export default function App() {
 
     // Handle Reviewer specialized actions
     if (action && action !== 'submit') {
+      // Map UI actions to backend workflow actions
+      const workflowActionMap: Record<string, 'approve' | 'reject' | 'request_revision'> = {
+        reviewed: 'approve',
+        revision: 'request_revision',
+        rejected: 'reject',
+      };
+
+      const workflowAction = workflowActionMap[action];
+
+      // Call backend workflow action API when applicable
+      if (workflowAction) {
+        try {
+          await postRequestWorkflowAction(id, {
+            action: workflowAction,
+            comment: assignment.comments || undefined,
+          });
+        } catch (error) {
+          console.error('Failed to post workflow action', error);
+          toast.error('Failed to update workflow status. Please try again.');
+        }
+      }
+
       const statusMap: Record<string, ReportData['status']> = {
         'reviewed': (loginData.role === 'approver' || loginData.role === 'manager_approver') ? 'approved' : 'reviewed',
         'revision': 'needs-revision',
@@ -1095,7 +1341,7 @@ export default function App() {
           priority: assignment.priority,
           submission_comments: assignment.comments || undefined,
         });
-        fetchRequestsAsReports();
+        fetchRequestsAsReports(true);
         toast.success('Workflow Initiated', {
           description: `Sequential review started with ${assignment.reviewerIds.length} members.`
         });
@@ -1235,17 +1481,94 @@ export default function App() {
 
   const renderUploadTemplates = () => renderDocumentManagement();
 
+  /**
+   * Download from Raise Request page.
+   * If there is a saved draft request for this template, download the **draft**
+   * (exported from SFDT). Otherwise download the original template file.
+   */
+  const handleDownloadTemplate = async (templateId: string, fileName: string) => {
+    try {
+      // 1) Prefer an existing draft request for this template
+      const draftsForTemplate = reports.filter(
+        (r) =>
+          r.templateId === templateId &&
+          ((r.status || '').toLowerCase() === 'pending' || (r.status as string) === 'draft')
+      );
+      if (draftsForTemplate.length > 0) {
+        const latestDraft = draftsForTemplate
+          .slice()
+          .sort(
+            (a, b) =>
+              new Date(b.lastModified || b.uploadDate || 0).getTime() -
+              new Date(a.lastModified || a.uploadDate || 0).getTime()
+          )[0];
+        await handleDownloadDocument(latestDraft.id, latestDraft.fileName || fileName || 'document');
+        return;
+      }
+
+      // 2) No draft yet – download the original template as-is
+      toast.info('Download started', { description: `Downloading ${fileName}...` });
+      const blob = await getTemplateFileBlob(templateId);
+      const type = (blob.type || '').toLowerCase();
+      if (type.includes('application/json') || type.includes('text/html')) {
+        toast.error('Download failed', { description: 'File not available or invalid.' });
+        return;
+      }
+      const name = (fileName || 'document').trim() || 'document';
+      const hasExt = /\.(docx?|doc|pdf|xlsx?|xls)$/i.test(name);
+      const downloadName = hasExt ? name : `${name}.docx`;
+      const ext = (downloadName.match(/\.(docx?|doc|pdf|xlsx?|xls)$/i) || ['.docx'])[0].toLowerCase();
+      const mimeByExt: Record<string, string> = {
+        '.doc': 'application/msword',
+        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        '.pdf': 'application/pdf',
+        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        '.xls': 'application/vnd.ms-excel',
+      };
+      const mime = mimeByExt[ext] || 'application/octet-stream';
+      const blobForDownload =
+        blob.type && !blob.type.startsWith('application/octet') ? blob : new Blob([blob], { type: mime });
+      const url = URL.createObjectURL(blobForDownload);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = downloadName;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success('Download completed');
+    } catch (err) {
+      console.error('Template download error', err);
+      toast.error('Download failed', { description: 'Please try again or contact support.' });
+    }
+  };
+
   const renderRaiseRequest = () => {
-    const readyTemplates = templates.filter(
-      (t) => t.parsedSections && t.parsedSections.length > 0
-    );
+    // Drive Raise Request list from /requests API (reports state),
+    // but keep the RaiseRequest component API by mapping requests into a Template-like shape.
+    const requestBackedTemplates = reports.map((r) => ({
+      id: r.id,
+      fileName: r.fileName || r.templateFileName || 'Document',
+      uploadDate:
+        typeof r.createdAt === 'string'
+          ? r.createdAt.split('T')[0]
+          : new Date().toISOString().split('T')[0],
+      fileSize: r.fileSize || 'N/A',
+      department: r.department || r.departmentName || '',
+      status: r.status as any,
+      parsedSections: undefined,
+    }));
+
     return (
       <div className="bg-gradient-to-br from-pale-blue-50 via-pale-blue-100 to-pale-blue-200 min-h-full">
         <RaiseRequest
-          templates={readyTemplates}
-          onFormSelect={handleFormSelection}
+          templates={requestBackedTemplates}
+          // For Raise Request view, selecting a row should open that request's form
+          onFormSelect={handleViewForm}
           onNavigate={handleViewChange}
           departments={departments}
+          onDownloadTemplate={handleDownloadTemplate}
         />
       </div>
     );
@@ -1270,22 +1593,69 @@ export default function App() {
           onPreviewDocument={handlePreviewDocument}
           onDeleteReport={handleDeleteReport}
           onDownloadDocument={handleDownloadDocument}
+          departments={departments}
         />
       </div>
     );
   };
 
   const renderDocumentLibrary = () => {
-    // Hide all reports with status 'pending' from Document Library for every role
-    let filtered = reports.filter(
-      (r) => (r.status || '').toLowerCase() !== 'pending'
-    );
+    // For admin/preparator, prefer the latest request per template so preview/edit/download
+    // operate on the updated document. If no request exists for a template, fall back to
+    // a template-only "report-like" row.
+    const templateReports: ReportData[] = templates.map((t) => {
+      const deptName =
+        (departments.find((d) => d.id === t.department)?.name ?? t.departmentName) || 'N/A';
+
+      const requestsForTemplate = reports
+        .filter((r) => r.templateId === t.id)
+        .sort(
+          (a, b) =>
+            new Date(b.updatedAt || b.createdAt).getTime() -
+            new Date(a.updatedAt || a.createdAt).getTime()
+        );
+
+      const latestRequest = requestsForTemplate[0];
+
+      if (latestRequest) {
+        return {
+          ...latestRequest,
+          templateId: t.id,
+          fileName: t.fileName || latestRequest.fileName,
+          department: deptName,
+          fileSize: t.fileSize || latestRequest.fileSize || 'N/A',
+          documentType: (latestRequest.documentType as any) || 'Request',
+        } as ReportData;
+      }
+
+      const uploadDate =
+        typeof t.uploadDate === 'string'
+          ? t.uploadDate.split('T')[0]
+          : new Date().toISOString().split('T')[0];
+
+      return {
+        id: t.id,
+        requestId: 'TEMPLATE',
+        templateId: t.id,
+        fileName: t.fileName,
+        uploadDate,
+        lastModified: t.updatedAt || t.uploadDate || uploadDate,
+        department: deptName,
+        status: t.status as any,
+        fileSize: t.fileSize || 'N/A',
+        assignedTo: '',
+        assignedToName: undefined,
+        documentType: 'Template',
+      } as ReportData;
+    });
+
+    // Existing request-based "libraryReports" for non-admin roles
+    let filtered = reports;
     if (loginData.role === 'manager_reviewer') {
       filtered = filtered.filter(
         (r) => !['unknown', 'review-process', 'review process'].includes((r.status || '').toLowerCase())
       );
     }
-    // Enrich with department name (from API or template + departments) and file size (from template)
     const libraryReports = filtered.map((r) => {
       const template = r.templateId ? templates.find((t) => t.id === r.templateId) : undefined;
       const deptName =
@@ -1299,8 +1669,9 @@ export default function App() {
     return (
       <div className="bg-gradient-to-br from-pale-blue-50 via-pale-blue-100 to-pale-blue-200 min-h-full">
         {loginData.role === 'admin' || loginData.role === 'preparator' ? (
+          // Admin & Preparator: All Reports dashboard layout, but rows built from /api/templates
           <PreparatorDocumentLibrary
-            reports={libraryReports}
+            reports={templateReports}
             onViewForm={handleViewForm}
             onPreviewDocument={handlePreviewDocument}
             onDeleteReport={handleDeleteReport}
@@ -1310,7 +1681,7 @@ export default function App() {
             userRole={loginData.role}
             currentUsername={loginData.username}
           />
-        ) : loginData.role === 'manager_reviewer' ? (
+        ) : loginData.role === 'manager_reviewer' || loginData.role === 'reviewer' ? (
           <ReviewerDocumentLibrary
             reports={libraryReports}
             onViewForm={handleViewForm}
@@ -1349,6 +1720,7 @@ export default function App() {
         onUploadSubmit={handleUploadSubmit}
         onClearSelection={handleClearSelection}
         uploadInProgress={uploadInProgress}
+        departments={departments}
       />
     </div>
   );
@@ -1362,6 +1734,7 @@ export default function App() {
         onConfigureWorkflow={setSelectedWorkflowForConfig}
         workflowCustomSteps={workflowCustomSteps}
         approvedWorkflows={approvedWorkflows}
+        departments={departments}
       />
     </div>
   );
@@ -1378,7 +1751,7 @@ export default function App() {
 
   const renderUserManagement = () => (
     <div className="bg-gradient-to-br from-pale-blue-50 via-pale-blue-100 to-pale-blue-200 min-h-full">
-      <UserManagement onNavigate={handleViewChange} />
+      <UserManagement onNavigate={handleViewChange} departments={departments} />
     </div>
   );
 
@@ -1469,7 +1842,6 @@ export default function App() {
         loginData={loginData}
         onLoginDataChange={(data) => setLoginData((prev) => ({ ...prev, ...data }))}
         onSignIn={handleSignIn}
-        onBackToHome={() => setShowHomePage(true)}
         loginError={loginError}
         isLoading={loginInProgress}
       />
@@ -1592,7 +1964,7 @@ export default function App() {
           {currentView === 'workflows' && <div className="flex-1 overflow-y-auto">{renderWorkflows()}</div>}
           {currentView === 'configure-workflow' && <div className="flex-1 overflow-y-auto">{renderConfigureWorkflow()}</div>}
           {currentView === 'user-management' && <div className="flex-1 overflow-y-auto">{renderUserManagement()}</div>}
-          {currentView === 'departments' && <div className="flex-1 overflow-y-auto"><DepartmentsView /></div>}
+          {currentView === 'departments' && <div className="flex-1 overflow-y-auto"><DepartmentsView departments={departments} /></div>}
           {currentView === 'enterprise' && <div className="flex-1 overflow-y-auto"><EnterpriseSettings onNavigate={handleViewChange} /></div>}
           {currentView === 'admin-home' && (
             <div className="bg-gradient-to-br from-pale-blue-50 via-pale-blue-100 to-pale-blue-200 flex-1 overflow-y-auto p-6">
@@ -1606,7 +1978,7 @@ export default function App() {
           )}
           {currentView === 'department-setup' && (
             <div className="bg-gradient-to-br from-pale-blue-50 via-pale-blue-100 to-pale-blue-200 flex-1 overflow-y-auto p-6">
-              <DepartmentSetupManagement />
+              <DepartmentSetupManagement departments={departments} />
             </div>
           )}
           {currentView === 'workflow-rules' && (
@@ -1637,7 +2009,7 @@ export default function App() {
               <AuditLogs
                 auditLogs={auditLogs}
                 reports={reports}
-                onRefresh={handleAuditLogsRefresh}
+                onRefresh={fetchAuditLogs}
                 onExport={handleAuditLogsExport}
                 filterRequestId={selectedRequestIdForAudit}
                 onViewActivityDetail={(requestId) => {
@@ -1656,7 +2028,7 @@ export default function App() {
             <div className="bg-gradient-to-br from-pale-blue-50 via-pale-blue-100 to-pale-blue-200 flex-1 overflow-y-auto p-6">
               <ReviewApprovalInterface
                 document={selectedReportForReview}
-                currentUser={{ email: currentUser.username, name: currentUser.fullName || currentUser.username, role: currentUser.role }}
+                currentUser={{ email: currentUser.email, name: currentUser.name, role: currentUser.role }}
                 onApprove={() => handleViewChange('document-library')}
                 onReject={() => handleViewChange('document-library')}
                 onRequestChanges={() => handleViewChange('document-library')}
@@ -1712,9 +2084,9 @@ export default function App() {
               ? templates.find((t) => t.id === report.templateId)
               : templates.find((t) => (report ? t.fileName === report.fileName : t.id === currentDocumentId));
             if (!report || !template) return <div className="p-8 text-center text-slate-600 flex-1">Document not found</div>;
-            const initialSfdt = (currentFormData as Record<string, unknown>)?._sfdt;
+            const initialSfdt = loadedSfdtRef.current ?? loadedSfdtForEditor ?? (currentFormData as Record<string, unknown>)?._sfdt;
             return (
-              <div className="flex-1 h-full overflow-hidden">
+              <div className="flex-1 h-full overflow-hidden" key={currentDocumentId}>
                 <SyncfusionRequestEditor
                   templateId={template.id}
                   requestId={report.requestId || report.id}
@@ -1722,7 +2094,9 @@ export default function App() {
                   fileName={template.fileName || report.fileName}
                   department={template.department || report.department || 'Engineering'}
                   status={report.status || 'pending'}
-                  onBack={() => setCurrentView(loginData.role === 'preparator' ? 'document-library' : 'raise-request')}
+                  currentUserName={authUser?.fullName || authUser?.username || loginData.username}
+                  currentUserRole={authUser?.role || loginData.role}
+                  onBack={() => { loadedSfdtRef.current = null; setLoadedSfdtForEditor(null); setCurrentView(loginData.role === 'preparator' ? 'document-library' : 'raise-request'); }}
                   onSave={handleSyncfusionSave}
                   onSubmit={handleSubmit}
                   onReset={() => {}}
@@ -1773,6 +2147,8 @@ export default function App() {
                 document={selectedReportForPreview}
                 onBack={() => { setSelectedReportForPreview(null); setCurrentView('document-library'); }}
                 onDownload={() => handleDownloadDocument(selectedReportForPreview.id, selectedReportForPreview.fileName)}
+                currentUserName={authUser?.fullName || authUser?.username || loginData.username}
+                currentUserRole={authUser?.role || loginData.role}
               />
             </div>
           )}
