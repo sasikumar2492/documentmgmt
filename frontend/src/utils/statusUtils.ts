@@ -1,6 +1,5 @@
 export const getStatusColor = (status: string) => {
   switch (status) {
-    case 'draft': return 'bg-slate-400 text-white border-0 text-xs';
     case 'pending': return 'bg-gray-400 text-white border-0 text-xs';
     case 'submitted': return 'bg-orange-500 text-white border-0 text-xs';
     case 'resubmitted': return 'bg-cyan-500 text-white border-0 text-xs';
@@ -18,7 +17,6 @@ export const getStatusColor = (status: string) => {
 
 export const getStatusLabel = (status: string) => {
   switch (status) {
-    case 'draft': return 'Draft';
     case 'pending': return 'Pending';
     case 'submitted': return 'Submitted';
     case 'resubmitted': return 'Resubmitted';

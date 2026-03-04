@@ -37,9 +37,6 @@ import { PageRemarksModal } from './PageRemarksModal';
 import { motion, AnimatePresence } from 'motion/react';
 import { getTemplateFileBlob, importDocxToSfdt } from '../api/templates';
 import { apiClient } from '../api/client';
-import { applyHeaderFooterToDocument, mergeWithDefaults, insertHeaderFooterAsContent } from '../utils/headerFooterFormatter';
-import { updateHeaderFieldsInSFDT, updateFooterFieldsInSFDT, type FooterFieldValues, type SignatoryValues } from '../utils/sfdtModifier';
-import { updateTableFields } from '../utils/tableFieldUpdater';
 
 DocumentEditorContainerComponent.Inject(DocEditorToolbar);
 
@@ -440,7 +437,6 @@ export const DocumentEditScreen = ({
                 serviceUrl={`${apiClient.defaults.baseURL}/document-editor/`}
                 enableToolbar={true}
                 showPropertiesPane={false}
-                documentEditorSettings={{ optimizeSfdt: false }}
                 toolbarItems={[
                   'Undo',
                   'Redo',
@@ -474,104 +470,14 @@ export const DocumentEditScreen = ({
                 created={() => {
                   const c = containerRef.current;
                   if (c?.documentEditor && sfdt) {
-                    // Open the document
                     c.documentEditor.open(sfdt);
-                    (c.documentEditor as any).zoomFactor = 1.0;
-                    
-                    // Update header table and dynamic footer signatories after document is loaded
+                    (c.documentEditor).zoomFactor = 1.0;
+                    // After layout, read page count for navigator
                     setTimeout(() => {
-                      const editor = c.documentEditor as any;
-                      // updateTableFields(editor, {
-                      //   sopNo: 'RSD-SOP-010',
-                      //   versionNo: 'Yash',
-                      //   effectiveDate: '10/04/2026',
-                      //   revisionDate: '',
-                      // });
-
-                      // Build footer values based on workflow step (status) and current user role
-                      try {
-                        const rawRole = userRole || '';
-                        const normalizedRole = rawRole.toLowerCase();
-                        const normalizedStatus = (status || '').toLowerCase();
-                        // Prefer a human-friendly label for the signatory name:
-                        // 1) use the role label from login (e.g. "Reviewer 1")
-                        // 2) fall back to username (e.g. "reviewer1")
-                        // 3) finally, a generic "User"
-                        const displayName = rawRole || username || 'User';
-
-                        const designationFromRole = () => {
-                          if (normalizedRole.includes('admin')) return 'Admin';
-                          if (normalizedRole.includes('preparator')) return 'Preparator';
-                          if (normalizedRole.includes('manager_reviewer')) return 'Manager Reviewer';
-                          if (normalizedRole.includes('manager_approver')) return 'Manager Approver';
-                          if (normalizedRole.includes('reviewer')) return 'Reviewer';
-                          if (normalizedRole.includes('approver')) return 'Approver';
-                          return normalizedRole || 'User';
-                        };
-
-                        const designation = designationFromRole();
-
-                        // Name: based on current username (e.g. reviewer1 -> Reviewer1)
-                        const rawNameSource = username || displayName || 'User';
-                        const nameValue =
-                          rawNameSource.charAt(0).toUpperCase() + rawNameSource.slice(1);
-
-                        // Signature: role-based label (e.g. Reviewer Name, Approver Name)
-                        const signatureValue = designation ? `${designation} Name` : nameValue;
-
-                        const baseSignatory: SignatoryValues = {
-                          name: nameValue,
-                          designation,
-                          signature: signatureValue,
-                          date: new Date().toLocaleDateString(),
-                        };
-                        const footerValues: FooterFieldValues = {};
-                        
-                        // 1) Prepared By – when admin/preparator saves during pending/draft/needs-revision stage
-                        const isPreparedStage =
-                          normalizedStatus === '' ||
-                          normalizedStatus === 'pending' ||
-                          normalizedStatus === 'draft' ||
-                          normalizedStatus === 'needs-revision';
-                        if (isPreparedStage && (normalizedRole.includes('admin') || normalizedRole.includes('preparator'))) {
-                          footerValues.preparedBy = baseSignatory;
-                        }
-
-                        // 2) Reviewed By – when reviewer saves during submitted/review stage
-                        const isReviewStage =
-                          normalizedStatus === 'submitted' ||
-                          normalizedStatus === 'review-process' ||
-                          normalizedStatus === 'initial-review' ||
-                          normalizedStatus === 'resubmitted';
-                        if (isReviewStage && normalizedRole.includes('reviewer')) {
-                          footerValues.reviewedBy = baseSignatory;
-                        }
-
-                        // 3) Approved By – when approver saves after document has been reviewed
-                        const isApproveStage =
-                          normalizedStatus === 'reviewed' ||
-                          normalizedStatus === 'approved';
-                        if (isApproveStage && normalizedRole.includes('approver')) {
-                          footerValues.approvedBy = baseSignatory;
-                        }
-
-                        if (footerValues.preparedBy || footerValues.reviewedBy || footerValues.approvedBy) {
-                          const serialized = editor.serialize();
-                          if (serialized && typeof serialized === 'string') {
-                            const modified = updateFooterFieldsInSFDT(serialized, footerValues);
-                            if (modified !== serialized) {
-                              editor.open(modified);
-                            }
-                          }
-                        }
-                      } catch (error) {
-                        // Silently ignore footer update errors to avoid blocking editor load
-                      }
-                      
-                      // Read page count for navigator
+                      const editor = c.documentEditor;
                       const count = editor?.pageCount || 1;
                       setPageCount(typeof count === 'number' && count > 0 ? count : 1);
-                    }, 1500);
+                    }, 500);
                   }
                 }}
               />

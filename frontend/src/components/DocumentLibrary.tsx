@@ -428,40 +428,31 @@ export const DocumentLibrary: React.FC<DocumentLibraryProps> = (({
   const canUserEdit = (doc: ReportData) => {
     const role = userRole?.toLowerCase() || '';
     const status = (doc.status || '').toLowerCase();
-
-    // Admin and Manager roles have full access
+    
+    // Admin and Manager roles have full access to view/edit
     if (role === 'admin' || role === 'manager') return true;
-
+    
     // Identify user role groups
     const isReviewer = role.includes('reviewer') || role === 'reviewer';
     const isApprover = role.includes('approver') || role === 'approver';
-
+    const isPreparator = role === 'preparator' || role === 'requestor';
+    
     // 1. Reviewers - Only enable edit when status is "submitted", "resubmitted", "reviewed", or "rejected"
     if (isReviewer) {
       return ['submitted', 'resubmitted', 'reviewed', 'rejected'].includes(status);
     }
-
+    
     // 2. Approvers - Only enable edit when status is "reviewed" or "approved"
     if (isApprover) {
       return ['reviewed', 'approved'].includes(status);
     }
-
-    // 3. Preparator/requestor can edit drafts or documents sent back for revision
-    if (role === 'preparator' || role === 'requestor') {
+    
+    // 2. Preparator can edit their own drafts or documents sent back for revision
+    if (isPreparator) {
       return ['pending', 'needs-revision'].includes(status);
     }
 
-    const isAssignedToMe =
-      doc.assignedTo === currentUsername ||
-      doc.assignedTo?.toLowerCase() === role ||
-      (isReviewer && (doc.assignedTo === 'Reviewer' || doc.assignedTo === 'Manager Reviewer')) ||
-      (isApprover && (doc.assignedTo === 'Approver' || doc.assignedTo === 'Manager Approver'));
-
-    // If it's in review process, allow assigned person to edit
-    if (['submitted', 'resubmitted', 'review-process', 'initial-review'].includes(status)) {
-      return isAssignedToMe;
-    }
-
+    // Default fallback
     return true;
   };
 
@@ -778,7 +769,7 @@ export const DocumentLibrary: React.FC<DocumentLibraryProps> = (({
         <div>
           <div className="flex items-center gap-3 mb-2">
             <h1 className="font-bold bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">
-              {isProcessRole ? 'All Reports' : 'Document Library2'}
+              {isProcessRole ? 'All Reports' : 'Document Library'}
             </h1>
             {!isProcessRole && userRole !== 'requestor' && (
               <div className="flex items-center gap-1 px-3 py-1 bg-gradient-to-r from-blue-500/20 to-indigo-500/20 rounded-full border border-blue-500/30">
@@ -1775,7 +1766,7 @@ export const DocumentLibrary: React.FC<DocumentLibraryProps> = (({
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => onDownloadDocument(doc.id, doc.fileName)}
+                                onClick={() => alert(`Downloading ${doc.fileName}...`)}
                                 className="h-7 w-7 p-0 text-green-600 hover:text-green-800 hover:bg-green-50 rounded"
                                 title="Download"
                               >
@@ -1789,7 +1780,7 @@ export const DocumentLibrary: React.FC<DocumentLibraryProps> = (({
                                   size="sm"
                                   onClick={() => {
                                     if (confirm(`Are you sure you want to delete ${doc.fileName}?`)) {
-                                      onDeleteReport(doc.id);
+                                      alert(`Deleting ${doc.fileName}...`);
                                     }
                                   }}
                                   className="h-7 w-7 p-0 text-red-600 hover:text-red-800 hover:bg-red-50 rounded"

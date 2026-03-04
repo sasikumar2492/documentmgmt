@@ -19,9 +19,6 @@ import {
   Inject,
 } from '@syncfusion/ej2-react-pdfviewer';
 import { FileText, Download, Loader2 } from 'lucide-react';
-import { applyHeaderFooterToDocument, mergeWithDefaults, insertHeaderFooterAsContent } from '../utils/headerFooterFormatter';
-import { updateHeaderFieldsInSFDT, updateFooterFieldsInSFDT, type FooterFieldValues, type SignatoryValues } from '../utils/sfdtModifier';
-import { updateTableFields } from '../utils/tableFieldUpdater';
 
 DocumentEditorContainerComponent.Inject(DocEditorToolbar);
 
@@ -188,11 +185,6 @@ interface OriginalDocViewerProps {
   onDocPageChange?: (pageIndex: number) => void;
   /** When true, show document in read-only mode (no toolbar, no editing). Use for AI Conversion Preview. */
   readOnly?: boolean;
-  /** Optional document status (pending, submitted, reviewed, approved…) for footer stage logic. */
-  status?: string;
-  /** Optional current user info for dynamic footer filling in preview. */
-  currentUserName?: string;
-  currentUserRole?: string;
 }
 
 function blobToBase64(blob: Blob): Promise<string> {
@@ -216,9 +208,6 @@ export const OriginalDocViewer: React.FC<OriginalDocViewerProps> = ({
   onDocPagesReady,
   onDocPageChange,
   readOnly = false,
-  status,
-  currentUserName,
-  currentUserRole,
 }) => {
   const [documentPath, setDocumentPath] = useState<string | null>(null);
   const [wordBlob, setWordBlob] = useState<Blob | null>(null);
@@ -506,88 +495,11 @@ export const OriginalDocViewer: React.FC<OriginalDocViewerProps> = ({
                 const c = documentEditorContainerRef.current;
                 const data = sfdtRef.current;
                 if (c?.documentEditor && data) {
-                  // Open the document
                   c.documentEditor.open(data);
                   (c.documentEditor as any).zoomFactor = 1.0;
                   if (readOnly) {
                     (c.documentEditor as any).isReadOnly = true;
                   }
-                  
-                  // Update header/footer after document is loaded
-                  setTimeout(() => {
-                    const editor = c.documentEditor as any;
-                    // 1) Header table metadata
-                    updateTableFields(editor, {
-                      sopNo: 'RSD-SOP-010',
-                      versionNo: 'Yash2',
-                      effectiveDate: '10/04/2026',
-                      revisionDate: '',
-                    });
-
-                    // 2) Dynamic footer signatories when status + user are available (preview path)
-                    if (status && currentUserName && currentUserRole) {
-                      try {
-                        const normalizedRole = currentUserRole.toLowerCase();
-                        const normalizedStatus = status.toLowerCase();
-                        const statusKey = normalizedStatus.replace(/\s+/g, ' ').trim();
-
-                        const designationFromRole = () => {
-                          if (normalizedRole.includes('admin')) return 'Admin';
-                          if (normalizedRole.includes('preparator')) return 'Preparator';
-                          if (normalizedRole.includes('manager_reviewer')) return 'Manager Reviewer';
-                          if (normalizedRole.includes('manager_approver')) return 'Manager Approver';
-                          if (normalizedRole.includes('reviewer')) return 'Reviewer';
-                          if (normalizedRole.includes('approver')) return 'Approver';
-                          return normalizedRole || 'User';
-                        };
-
-                        const baseSignatory: SignatoryValues = {
-                          name: currentUserName,
-                          designation: designationFromRole(),
-                          signature: currentUserName,
-                          date: new Date().toLocaleDateString(),
-                        };
-
-                        const footerValues: FooterFieldValues = {};
-                        const isPreparedStage =
-                          !statusKey ||
-                          statusKey.includes('pending') ||
-                          statusKey.includes('draft');
-                        if (isPreparedStage && (normalizedRole.includes('admin') || normalizedRole.includes('preparator'))) {
-                          footerValues.preparedBy = baseSignatory;
-                        }
-
-                        const isReviewStage =
-                          statusKey.includes('submit') ||
-                          statusKey.includes('review') ||
-                          statusKey.includes('reject') ||
-                          statusKey.includes('approved');
-                        if (isReviewStage && normalizedRole.includes('reviewer')) {
-                          footerValues.reviewedBy = baseSignatory;
-                        }
-
-                        const isApproveStage =
-                          statusKey.includes('reviewed') ||
-                          statusKey.includes('approved');
-                        if (isApproveStage && normalizedRole.includes('approver')) {
-                          footerValues.approvedBy = baseSignatory;
-                        }
-
-                        if (footerValues.preparedBy || footerValues.reviewedBy || footerValues.approvedBy) {
-                          const serialized = editor.serialize();
-                          if (serialized && typeof serialized === 'string') {
-                            const modified = updateFooterFieldsInSFDT(serialized, footerValues);
-                            if (modified !== serialized) {
-                              editor.open(modified);
-                            }
-                          }
-                        }
-                      } catch {
-                        // If footer SFDT manipulation fails in preview, ignore.
-                      }
-                    }
-                  }, 1500);
-                  
                   // Report page count after layout (Syncfusion may compute it asynchronously)
                   const reportPages = () => {
                     const count = c?.documentEditor?.pageCount ?? 1;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -34,7 +34,7 @@ import {
 } from "./ui/pagination";
 
 interface Department {
-  id: string;
+  id: number;
   name: string;
   code: string;
   manager: string;
@@ -43,43 +43,20 @@ interface Department {
   gradient: string;
 }
 
-const DEFAULT_GRADIENT = 'from-blue-500 to-cyan-600';
-
-function mapApiToDepartments(api: { id: string; name: string; code?: string | null }[]): Department[] {
-  return api.map((d, i) => ({
-    id: d.id,
-    name: d.name,
-    code: d.code ?? '',
-    manager: '',
-    users: 0,
-    activeRequests: 0,
-    gradient: DEFAULT_GRADIENT,
-  }));
-}
-
-const FALLBACK_DEPARTMENTS: Department[] = [
-  { id: '1', name: 'Quality Assurance', code: 'QA', manager: 'Sarah Johnson', users: 24, activeRequests: 12, gradient: 'from-purple-500 to-indigo-600' },
-  { id: '2', name: 'Production Engineering', code: 'PE', manager: 'Michael Chen', users: 18, activeRequests: 8, gradient: 'from-blue-500 to-cyan-600' },
-  { id: '3', name: 'Supply Chain', code: 'SC', manager: 'Emily Rodriguez', users: 32, activeRequests: 15, gradient: 'from-green-500 to-emerald-600' },
+const INITIAL_DEPARTMENTS: Department[] = [
+  { id: 1, name: 'Quality Assurance', code: 'QA', manager: 'Sarah Johnson', users: 24, activeRequests: 12, gradient: 'from-purple-500 to-indigo-600' },
+  { id: 2, name: 'Production Engineering', code: 'PE', manager: 'Michael Chen', users: 18, activeRequests: 8, gradient: 'from-blue-500 to-cyan-600' },
+  { id: 3, name: 'Supply Chain', code: 'SC', manager: 'Emily Rodriguez', users: 32, activeRequests: 15, gradient: 'from-green-500 to-emerald-600' },
+  { id: 4, name: 'Research & Development', code: 'RD', manager: 'David Kim', users: 28, activeRequests: 22, gradient: 'from-orange-500 to-amber-600' },
+  { id: 5, name: 'Manufacturing', code: 'MFG', manager: 'Lisa Anderson', users: 45, activeRequests: 18, gradient: 'from-pink-500 to-rose-600' },
+  { id: 6, name: 'Materials Testing', code: 'MT', manager: 'Robert Taylor', users: 15, activeRequests: 9, gradient: 'from-teal-500 to-cyan-600' }
 ];
 
-interface DepartmentSetupManagementProps {
-  /** Departments from /api/departments; when provided, list is loaded from API */
-  departments?: { id: string; name: string; code?: string | null }[];
-}
-
-export const DepartmentSetupManagement: React.FC<DepartmentSetupManagementProps> = ({ departments: departmentsFromApi = [] }) => {
-  const [departments, setDepartments] = useState<Department[]>(() =>
-    departmentsFromApi.length > 0 ? mapApiToDepartments(departmentsFromApi) : FALLBACK_DEPARTMENTS
-  );
-  useEffect(() => {
-    if (departmentsFromApi.length > 0) {
-      setDepartments(mapApiToDepartments(departmentsFromApi));
-    }
-  }, [departmentsFromApi]);
+export const DepartmentSetupManagement: React.FC = () => {
+  const [departments, setDepartments] = useState<Department[]>(INITIAL_DEPARTMENTS);
   const [searchTerm, setSearchTerm] = useState('');
   const [isAdding, setIsAdding] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 5;
   
@@ -90,12 +67,12 @@ export const DepartmentSetupManagement: React.FC<DepartmentSetupManagementProps>
       setDepartments(prev => prev.map(d => d.id === editingId ? { ...d, ...form } : d));
       setEditingId(null);
     } else {
-      const newDept: Department = {
-        id: `new-${Date.now()}`,
+      const newDept = {
+        id: Date.now(),
         ...form,
         users: 0,
         activeRequests: 0,
-        gradient: DEFAULT_GRADIENT
+        gradient: 'from-blue-500 to-cyan-600'
       };
       setDepartments(prev => [...prev, newDept]);
       setIsAdding(false);

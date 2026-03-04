@@ -7,7 +7,6 @@ export interface AuthUser {
   username: string;
   role: string;
   departmentId: string | null;
-  departmentName: string | null;
   fullName: string | null;
 }
 

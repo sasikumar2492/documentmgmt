@@ -2,19 +2,3 @@ node_modules/
 .env
 uploads/
 *.log
-
-### react ###
-.DS_*
-**/*.backup.*
-**/*.back.*
-
-node_modules
-
-*.sublime*
-
-psd
-thumb
-sketch
-node_modules
-.node_modules
-.history

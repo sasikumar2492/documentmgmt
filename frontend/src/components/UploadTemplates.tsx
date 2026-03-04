@@ -66,6 +66,9 @@ export const UploadTemplates: React.FC<UploadTemplatesProps> = ({
           <h1 className="text-2xl font-bold bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 bg-clip-text text-transparent mb-1">
             AI Conversion
           </h1>
+          <p className="text-slate-500">
+            Upload and convert SOP documents with intelligent AI processing
+          </p>
         </div>
         
         <Button

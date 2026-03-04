@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -18,7 +18,6 @@ import {
   Shield,
 } from 'lucide-react';
 import { ReportData } from '../types';
-import { getAuditLogs, type AuditLogEntry as ApiAuditLogEntry } from '../api/auditLogs';
 
 interface ActivityLogEntry {
   id: string;
@@ -53,57 +52,6 @@ interface ActivityLogDetailProps {
 export function ActivityLogDetail({ requestId, onBack, reports = [] }: ActivityLogDetailProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const activitiesPerPage = 5;
-  const [apiActivities, setApiActivities] = useState<ActivityLogEntry[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let isMounted = true;
-    const load = async () => {
-      setLoading(true);
-      setLoadError(null);
-      try {
-        // requestId here may be business ID (REQ-...) or UUID.
-        // For /audit-logs we can filter by entity_id (UUID) or request_id (business ID).
-        const reportMatch = reports.find(
-          (r) => r.id === requestId || r.requestId === requestId
-        );
-        const entries: ApiAuditLogEntry[] = await getAuditLogs({
-          entity_type: 'request',
-          entity_id: reportMatch?.id,
-          request_id: reportMatch?.requestId || requestId,
-          limit: 200,
-        });
-        if (!isMounted) return;
-        const mapped: ActivityLogEntry[] = entries.map((e) => ({
-          id: e.id,
-          action: e.action.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()),
-          performedBy: e.user || 'System',
-          role: e.userRole || 'System',
-          timestamp: e.timestamp,
-          department:
-            e.department ||
-            reportMatch?.department ||
-            reportMatch?.departmentName ||
-            'General',
-          details: e.details || '',
-          esign: undefined,
-          status: 'completed',
-        }));
-        setApiActivities(mapped);
-      } catch (err: any) {
-        if (!isMounted) return;
-        setLoadError(err?.response?.data?.error || 'Failed to load activity from server');
-        setApiActivities(null);
-      } finally {
-        if (isMounted) setLoading(false);
-      }
-    };
-    load();
-    return () => {
-      isMounted = false;
-    };
-  }, [requestId, reports]);
 
   // Generate a personalized signature style based on username
   const generateSignatureStyle = (username: string): string => {
@@ -314,32 +262,21 @@ export function ActivityLogDetail({ requestId, onBack, reports = [] }: ActivityL
     (report) => report.id === requestId || report.requestId === requestId
   );
 
-  // Generate activity log from API (preferred) or fall back to synthetic data
+  // Generate activity log from current report
   let selectedLog: RequestActivityLog | null = null;
-
+  
   if (currentReport) {
-    const base: Omit<RequestActivityLog, 'totalActivities' | 'activities'> = {
+    const activities = generateActivitiesFromReport(currentReport);
+    selectedLog = {
       requestId: currentReport.requestId || `REQ-${currentReport.id}`,
       fileName: currentReport.fileName || 'Unknown Document',
       documentType: currentReport.documentType || 'Approval Request',
       department: currentReport.assignedTo || currentReport.department || 'General',
       status: mapReportStatusToActivityStatus(currentReport.status),
       submittedDate: currentReport.uploadDate || new Date().toLocaleDateString(),
-      lastUpdated:
-        currentReport.lastModified ||
-        currentReport.uploadDate ||
-        new Date().toLocaleString(),
-    };
-
-    const activities =
-      apiActivities && apiActivities.length > 0
-        ? apiActivities
-        : generateActivitiesFromReport(currentReport);
-
-    selectedLog = {
-      ...base,
+      lastUpdated: currentReport.lastModified || currentReport.uploadDate || new Date().toLocaleString(),
       totalActivities: activities.length,
-      activities,
+      activities: activities,
     };
   }
 
@@ -350,9 +287,7 @@ export function ActivityLogDetail({ requestId, onBack, reports = [] }: ActivityL
           <CardContent className="p-12 text-center">
             <AlertCircle className="h-16 w-16 text-slate-300 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-slate-700 mb-2">Activity Log Not Found</h3>
-            <p className="text-slate-600 mb-4">
-              {loadError || 'The requested activity log could not be found.'}
-            </p>
+            <p className="text-slate-600 mb-4">The requested activity log could not be found.</p>
             <Button
               onClick={onBack}
               className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white border-0 shadow-md"

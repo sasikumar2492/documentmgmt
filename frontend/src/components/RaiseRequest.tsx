@@ -16,7 +16,6 @@ import {
 } from './ui/table';
 
 import { ImageWithFallback } from './figma/ImageWithFallback';
-import { getStatusColor, getStatusLabel } from '../utils/statusUtils';
 
 interface RaiseRequestProps {
   templates: TemplateData[];
@@ -24,8 +23,6 @@ interface RaiseRequestProps {
   onNavigate?: (view: ViewType) => void;
   /** Optional list of departments so we can show department names instead of raw IDs. */
   departments?: DepartmentData[];
-  /** Download document file (served via /api/requests/:id/file). When provided, the Download button uses this. */
-  onDownloadTemplate?: (templateId: string, fileName: string) => void | Promise<void>;
 }
 
 export const RaiseRequest: React.FC<RaiseRequestProps> = ({
@@ -33,7 +30,6 @@ export const RaiseRequest: React.FC<RaiseRequestProps> = ({
   onFormSelect,
   onNavigate,
   departments = [],
-  onDownloadTemplate,
 }) => {
   const [searchTerm, setSearchTerm] = useState<string>('');
 
@@ -46,11 +42,8 @@ export const RaiseRequest: React.FC<RaiseRequestProps> = ({
   };
 
   const handleDownload = (template: TemplateData) => {
-    if (onDownloadTemplate) {
-      void Promise.resolve(onDownloadTemplate(template.id, template.fileName || 'document'));
-    } else {
-      alert(`Downloading: ${template.fileName}`);
-    }
+    // Create a mock download
+    alert(`Downloading: ${template.fileName}`);
   };
 
   // Map department ID -> human-readable name
@@ -193,9 +186,9 @@ export const RaiseRequest: React.FC<RaiseRequestProps> = ({
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Badge className={getStatusColor((template.status as any) || 'pending')}>
+                          <Badge className="bg-gradient-to-r from-green-500 to-emerald-600 text-white">
                             <FileCheck className="h-3 w-3 mr-1" />
-                            {getStatusLabel((template.status as any) || 'pending')}
+                            Ready
                           </Badge>
                         </TableCell>
                         <TableCell>

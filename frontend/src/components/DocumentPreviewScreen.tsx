@@ -27,18 +27,12 @@ interface DocumentPreviewScreenProps {
   document: ReportData;
   onBack: () => void;
   onDownload: () => void;
-  /** Current user name for dynamic footer signatories in preview. */
-  currentUserName?: string;
-  /** Current user role for dynamic footer signatories in preview. */
-  currentUserRole?: string;
 }
 
 export const DocumentPreviewScreen: React.FC<DocumentPreviewScreenProps> = ({
   document,
   onBack,
-  onDownload,
-  currentUserName,
-  currentUserRole,
+  onDownload
 }) => {
   const [zoom, setZoom] = useState(100);
   const [currentPage, setCurrentPage] = useState(1);
@@ -340,9 +334,6 @@ export const DocumentPreviewScreen: React.FC<DocumentPreviewScreenProps> = ({
                     : undefined
                 }
                 readOnly={true}
-                status={document.status}
-                currentUserName={currentUserName}
-                currentUserRole={currentUserRole}
               />
             </div>
           ) : (

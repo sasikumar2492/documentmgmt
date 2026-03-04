@@ -1,8 +1,5 @@
 import { apiClient } from './client';
-import { getStoredToken } from './auth';
 import type { FormSection } from '../types';
-
-const getApiBase = () => import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
 export interface TemplateApi {
   id: string;
@@ -56,38 +53,12 @@ export async function updateTemplate(
   return data;
 }
 
-export interface TemplateDownloadInfo {
-  downloadUrl: string;
-  expiresAt: string;
-}
-
-export async function getTemplateDownloadUrl(
-  templateId: string,
-  expiresIn?: number
-): Promise<TemplateDownloadInfo> {
-  const { data } = await apiClient.get<TemplateDownloadInfo>(
-    `/templates/${templateId}/download`,
-    { params: expiresIn ? { expiresIn } : undefined }
-  );
-  return data;
-}
-
-/** Fetch template file as Blob for download/preview. Uses fetch so response is validated and Content-Type preserved. */
+/** Fetch template file as Blob for preview (Original Doc). */
 export async function getTemplateFileBlob(templateId: string): Promise<Blob> {
-  const base = getApiBase();
-  const token = getStoredToken();
-  const res = await fetch(`${base}/api/templates/${templateId}/file`, {
-    method: 'GET',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  const { data } = await apiClient.get<Blob>(`/templates/${templateId}/file`, {
+    responseType: 'blob',
   });
-  if (!res.ok) {
-    throw new Error(res.status === 404 ? 'Template or file not found' : `Download failed (${res.status})`);
-  }
-  const contentType = (res.headers.get('Content-Type') || '').toLowerCase();
-  if (contentType.includes('application/json') || contentType.includes('text/html')) {
-    throw new Error('Server returned invalid content for file');
-  }
-  return res.blob();
+  return data;
 }
 
 /** Convert DOCX blob to SFDT via Syncfusion Word Processor Server (Docker). Returns SFDT JSON string or throws. */
