@@ -39,6 +39,7 @@ interface ReviewerDocumentLibraryProps {
   onPreviewDocument: (reportId: string) => void;
   onDownloadDocument: (reportId: string, fileName: string) => void;
   onNavigate?: (view: ViewType, options?: { requestId?: string }) => void;
+  userRole?: string;
   currentUsername?: string;
 }
 
@@ -48,6 +49,7 @@ export const ReviewerDocumentLibrary: React.FC<ReviewerDocumentLibraryProps> = (
   onPreviewDocument,
   onDownloadDocument,
   onNavigate,
+  userRole = 'reviewer',
   currentUsername = ''
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -65,10 +67,43 @@ export const ReviewerDocumentLibrary: React.FC<ReviewerDocumentLibraryProps> = (
   };
 
   const canUserEdit = (doc: ReportData) => {
-    // Reviewers can edit when status is "submitted", "resubmitted", "reviewed", or "rejected"
-    // They cannot edit when it's "needs-revision"
+    const role = userRole?.toLowerCase() || '';
     const status = (doc.status || '').toLowerCase();
-    return ['submitted', 'resubmitted', 'reviewed', 'rejected'].includes(status);
+
+    // Admin and Manager roles have full access
+    if (role === 'admin' || role === 'manager') return true;
+
+    // Identify user role groups
+    const isReviewer = role.includes('reviewer') || role === 'reviewer';
+    const isApprover = role.includes('approver') || role === 'approver';
+
+    // 1. Reviewers - Only enable edit when status is "submitted", "resubmitted", "reviewed", or "rejected"
+    if (isReviewer) {
+      return ['submitted', 'resubmitted', 'reviewed', 'rejected'].includes(status);
+    }
+
+    // 2. Approvers - Only enable edit when status is "reviewed" or "approved"
+    if (isApprover) {
+      return ['reviewed', 'approved'].includes(status);
+    }
+
+    // 3. Preparator/requestor can edit drafts or documents sent back for revision
+    if (role === 'preparator' || role === 'requestor') {
+      return ['pending', 'needs-revision'].includes(status);
+    }
+
+    const isAssignedToMe =
+      doc.assignedTo === currentUsername ||
+      doc.assignedTo?.toLowerCase() === role ||
+      (isReviewer && (doc.assignedTo === 'Reviewer' || doc.assignedTo === 'Manager Reviewer')) ||
+      (isApprover && (doc.assignedTo === 'Approver' || doc.assignedTo === 'Manager Approver'));
+
+    // If it's in review process, allow assigned person to edit
+    if (['submitted', 'resubmitted', 'review-process', 'initial-review'].includes(status)) {
+      return isAssignedToMe;
+    }
+
+    return true;
   };
 
   const handlePreview = (report: ReportData) => {

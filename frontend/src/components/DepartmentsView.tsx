@@ -34,7 +34,62 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { EscalationConfig } from './EscalationConfig';
 
-export const DepartmentsView: React.FC = () => {
+const DEPT_ICONS = [Cog, Package, FileText, TrendingUp, Building2, FlaskConical];
+const DEPT_STYLES = [
+  { color: 'from-blue-500 to-blue-600', lightBg: 'bg-blue-50', border: 'border-blue-200', textColor: 'text-blue-600', hoverBg: 'hover:bg-blue-50' },
+  { color: 'from-purple-500 to-purple-600', lightBg: 'bg-purple-50', border: 'border-purple-200', textColor: 'text-purple-600', hoverBg: 'hover:bg-purple-50' },
+  { color: 'from-teal-500 to-teal-600', lightBg: 'bg-teal-50', border: 'border-teal-200', textColor: 'text-teal-600', hoverBg: 'hover:bg-teal-50' },
+  { color: 'from-orange-500 to-orange-600', lightBg: 'bg-orange-50', border: 'border-orange-200', textColor: 'text-orange-600', hoverBg: 'hover:bg-orange-50' },
+  { color: 'from-green-500 to-green-600', lightBg: 'bg-green-50', border: 'border-green-200', textColor: 'text-green-600', hoverBg: 'hover:bg-green-50' },
+  { color: 'from-indigo-500 to-indigo-600', lightBg: 'bg-indigo-50', border: 'border-indigo-200', textColor: 'text-indigo-600', hoverBg: 'hover:bg-indigo-50' },
+];
+
+export type DepartmentFromApi = { id: string; name: string; code?: string | null };
+
+function mapApiDepartmentsToDisplay(apiDepts: DepartmentFromApi[]): Array<{
+  id: string;
+  name: string;
+  icon: typeof Cog;
+  color: string;
+  lightBg: string;
+  border: string;
+  textColor: string;
+  hoverBg: string;
+  members: number;
+  activeRequests: number;
+  completedRequests: number;
+  description: string;
+}> {
+  return apiDepts.map((d, i) => {
+    const style = DEPT_STYLES[i % DEPT_STYLES.length];
+    return {
+      id: d.id,
+      name: d.name,
+      icon: DEPT_ICONS[i % DEPT_ICONS.length],
+      ...style,
+      members: 0,
+      activeRequests: 0,
+      completedRequests: 0,
+      description: d.code ? `${d.name} (${d.code})` : d.name,
+    };
+  });
+}
+
+interface DepartmentsViewProps {
+  /** Departments from /api/departments; when provided, this list is used instead of built-in defaults */
+  departments?: DepartmentFromApi[];
+}
+
+export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ departments: departmentsFromApi = [] }) => {
+  const displayDepartments = departmentsFromApi.length > 0
+    ? mapApiDepartmentsToDisplay(departmentsFromApi)
+    : mapApiDepartmentsToDisplay([
+        { id: 'engineering', name: 'Engineering', code: 'ENG' },
+        { id: 'manufacturing', name: 'Manufacturing', code: 'MFG' },
+        { id: 'quality-assurance', name: 'Quality Assurance', code: 'QA' },
+      ]);
+  const departments = displayDepartments;
+
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [filterDepartment, setFilterDepartment] = useState<string>('all');
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -97,93 +152,6 @@ export const DepartmentsView: React.FC = () => {
       managerApprover: { name: 'Amelia Scott', role: 'VP of Innovation', email: 'amelia.scott@company.com' }
     }
   };
-
-  const departments = [
-    {
-      id: 'engineering',
-      name: 'Engineering',
-      icon: Cog,
-      color: 'from-blue-500 to-blue-600',
-      lightBg: 'bg-blue-50',
-      border: 'border-blue-200',
-      textColor: 'text-blue-600',
-      hoverBg: 'hover:bg-blue-50',
-      members: 12,
-      activeRequests: 8,
-      completedRequests: 45,
-      description: 'Design, development, and technical specifications'
-    },
-    {
-      id: 'manufacturing',
-      name: 'Manufacturing',
-      icon: Package,
-      color: 'from-purple-500 to-purple-600',
-      lightBg: 'bg-purple-50',
-      border: 'border-purple-200',
-      textColor: 'text-purple-600',
-      hoverBg: 'hover:bg-purple-50',
-      members: 18,
-      activeRequests: 15,
-      completedRequests: 67,
-      description: 'Production processes and manufacturing operations'
-    },
-    {
-      id: 'quality-assurance',
-      name: 'Quality Assurance',
-      icon: FileText,
-      color: 'from-teal-500 to-teal-600',
-      lightBg: 'bg-teal-50',
-      border: 'border-teal-200',
-      textColor: 'text-teal-600',
-      hoverBg: 'hover:bg-teal-50',
-      members: 10,
-      activeRequests: 12,
-      completedRequests: 89,
-      description: 'Quality control, testing, and compliance'
-    },
-    {
-      id: 'procurement',
-      name: 'Procurement',
-      icon: TrendingUp,
-      color: 'from-orange-500 to-orange-600',
-      lightBg: 'bg-orange-50',
-      border: 'border-orange-200',
-      textColor: 'text-orange-600',
-      hoverBg: 'hover:bg-orange-50',
-      members: 8,
-      activeRequests: 6,
-      completedRequests: 34,
-      description: 'Supplier management and purchasing'
-    },
-    {
-      id: 'operations',
-      name: 'Operations',
-      icon: Building2,
-      color: 'from-green-500 to-green-600',
-      lightBg: 'bg-green-50',
-      border: 'border-green-200',
-      textColor: 'text-green-600',
-      hoverBg: 'hover:bg-green-50',
-      members: 15,
-      activeRequests: 10,
-      completedRequests: 52,
-      description: 'Day-to-day operations and logistics'
-    },
-    {
-      id: 'research-development',
-      name: 'Research & Development',
-      icon: FlaskConical,
-      color: 'from-indigo-500 to-indigo-600',
-      lightBg: 'bg-indigo-50',
-      border: 'border-indigo-200',
-      textColor: 'text-indigo-600',
-      hoverBg: 'hover:bg-indigo-50',
-      members: 14,
-      activeRequests: 9,
-      completedRequests: 41,
-      description: 'Innovation, research, and product development'
-    }
-  ];
 
   const filteredDepartments = filterDepartment === 'all' 
     ? departments 
