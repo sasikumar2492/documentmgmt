@@ -25,6 +25,8 @@ interface ReportsProps {
   onDeleteReport: (reportId: string) => void;
   onDownloadDocument: (reportId: string, fileName: string) => void;
   onNavigate?: (view: ViewType, options?: { requestId?: string }) => void;
+  /** Departments from /api/departments */
+  departments?: { id: string; name: string }[];
 }
 
 export const Reports: React.FC<ReportsProps> = ({
@@ -37,11 +39,18 @@ export const Reports: React.FC<ReportsProps> = ({
   onPreviewDocument,
   onDeleteReport,
   onDownloadDocument,
-  onNavigate
+  onNavigate,
+  departments: departmentsFromApi = []
 }) => {
   const safeReports = Array.isArray(reports) ? reports : [];
   const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
-  
+
+  // Department filter options: All + list from /api/departments
+  const departments = [
+    { id: 'all', name: 'All Departments' },
+    ...departmentsFromApi,
+  ];
+
   // Workflow Dialog State
   const [workflowDialogOpen, setWorkflowDialogOpen] = useState(false);
   const [selectedReport, setSelectedReport] = useState<ReportData | null>(null);
@@ -59,18 +68,6 @@ export const Reports: React.FC<ReportsProps> = ({
     setWorkflowDialogOpen(false);
     setSelectedReport(null);
   };
-
-  // Department options
-  const departments = [
-    { id: 'all', name: 'All Departments' },
-    { id: 'supply-chain', name: 'Supply Chain' },
-    { id: 'finance', name: 'Finance' },
-    { id: 'operations', name: 'Operations' },
-    { id: 'quality-assurance', name: 'Quality Assurance' },
-    { id: 'procurement', name: 'Procurement' },
-    { id: 'engineering', name: 'Engineering' },
-    { id: 'manufacturing', name: 'Manufacturing' }
-  ];
 
   /** Format file size: raw bytes → MB/KB; already-formatted strings shown as-is */
   const formatFileSize = (fileSize: string | undefined): string => {

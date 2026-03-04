@@ -47,6 +47,8 @@ interface WorkflowsProps {
     workflow: any[];
     approvedDate: string;
   }>;
+  /** Departments from /api/departments */
+  departments?: { id: string; name: string }[];
 }
 
 interface WorkflowStep {
@@ -70,14 +72,16 @@ interface DepartmentWorkflow {
   createdDate: string;
 }
 
-const DEPARTMENTS = [
-  { id: 'engineering', name: 'Engineering', color: 'blue' },
-  { id: 'manufacturing', name: 'Manufacturing', color: 'purple' },
-  { id: 'quality', name: 'Quality Assurance', color: 'green' },
-  { id: 'procurement', name: 'Procurement', color: 'orange' },
-  { id: 'operations', name: 'Operations', color: 'indigo' },
-  { id: 'research', name: 'Research & Development', color: 'pink' }
-];
+const DEFAULT_DEPARTMENT_COLORS: Record<string, string> = {
+  engineering: 'blue',
+  manufacturing: 'purple',
+  quality: 'green',
+  'quality-assurance': 'teal',
+  procurement: 'orange',
+  operations: 'indigo',
+  research: 'pink',
+  'research-development': 'pink',
+};
 
 export const Workflows: React.FC<WorkflowsProps> = ({
   reports = [],
@@ -85,7 +89,8 @@ export const Workflows: React.FC<WorkflowsProps> = ({
   onNavigate,
   onConfigureWorkflow,
   workflowCustomSteps,
-  approvedWorkflows = []
+  approvedWorkflows = [],
+  departments: departmentsFromApi = []
 }) => {
   const safeReports = Array.isArray(reports) ? reports : [];
   const safeTemplates = Array.isArray(templates) ? templates : [];
@@ -165,8 +170,10 @@ export const Workflows: React.FC<WorkflowsProps> = ({
   };
 
   const getDepartmentColor = (departmentId: string) => {
-    const dept = DEPARTMENTS.find(d => d.id === departmentId);
-    return dept?.color || 'blue';
+    const fromApi = departmentsFromApi.find(d => d.id === departmentId);
+    if (fromApi) return 'blue';
+    const slug = departmentId.toLowerCase().replace(/\s+/g, '-');
+    return DEFAULT_DEPARTMENT_COLORS[slug] || 'blue';
   };
 
   const handleConfigure = (workflow: DepartmentWorkflow) => {

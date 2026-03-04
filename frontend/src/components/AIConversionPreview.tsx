@@ -397,6 +397,8 @@ export const AIConversionPreview: React.FC<AIConversionPreviewProps> = ({
                   }}
                   onDocPageChange={(idx) => setCurrentDocPage(idx)}
                   readOnly={true}
+                  // For AI Conversion we do not want dynamic header/footer mutations.
+                  skipHeaderFooterUpdate={true}
                 />
               </div>
             ) : (

@@ -29,6 +29,8 @@ interface DocumentManagementProps {
   onUploadSubmit?: () => void;
   onClearSelection?: () => void;
   uploadInProgress?: boolean;
+  /** Departments from /api/departments */
+  departments?: { id: string; name: string }[];
 }
 
 export const DocumentManagement: React.FC<DocumentManagementProps> = ({
@@ -40,7 +42,8 @@ export const DocumentManagement: React.FC<DocumentManagementProps> = ({
   onFileUpload,
   onUploadSubmit,
   onClearSelection,
-  uploadInProgress = false
+  uploadInProgress = false,
+  departments = []
 }) => {
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateData | null>(null);
   const [selectedReport, setSelectedReport] = useState<ReportData | null>(null);
@@ -150,18 +153,7 @@ export const DocumentManagement: React.FC<DocumentManagementProps> = ({
                 <Wand2 className="h-3 w-3 text-purple-500 animate-pulse" style={{ animationDuration: '1.5s' }} />
               </div>
             </div>
-            <p className="text-slate-500 font-medium">Upload and convert SOP documents with intelligent AI processing</p>
           </div>
-          
-          {/* Create SOP Button */}
-          <Button
-            onClick={() => alert('Create SOP Document - Opens form builder or document creation wizard')}
-            className="flex items-center gap-2 px-6 py-6 bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 hover:from-blue-700 hover:via-blue-600 hover:to-cyan-600 text-white rounded-xl shadow-lg hover:shadow-xl transition-all"
-          >
-            <FilePlus className="h-5 w-5" />
-            <span className="font-semibold">Create SOP</span>
-            <Sparkles className="h-4 w-4 animate-pulse" />
-          </Button>
         </div>
 
         {/* Statistics Cards */}
@@ -293,7 +285,7 @@ export const DocumentManagement: React.FC<DocumentManagementProps> = ({
               )}
             </div>
 
-            {/* Department Selection Field */}
+            {/* Department Selection Field - options from /api/departments */}
             <div>
               <label className="text-sm text-slate-600 font-medium mb-2 flex items-center gap-2">
                 <Building2 className="h-4 w-4 text-slate-600" />
@@ -304,42 +296,14 @@ export const DocumentManagement: React.FC<DocumentManagementProps> = ({
                   <SelectValue placeholder="Choose department..." />
                 </SelectTrigger>
                 <SelectContent className="rounded-xl shadow-xl border-slate-100">
-                  <SelectItem value="engineering">
-                    <div className="flex items-center gap-2">
-                      <Building2 className="h-4 w-4 text-blue-600" />
-                      <span>Engineering</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="manufacturing">
-                    <div className="flex items-center gap-2">
-                      <Building2 className="h-4 w-4 text-blue-600" />
-                      <span>Manufacturing</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="quality">
-                    <div className="flex items-center gap-2">
-                      <Building2 className="h-4 w-4 text-blue-600" />
-                      <span>Quality Assurance</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="procurement">
-                    <div className="flex items-center gap-2">
-                      <Building2 className="h-4 w-4 text-blue-600" />
-                      <span>Procurement</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="operations">
-                    <div className="flex items-center gap-2">
-                      <Building2 className="h-4 w-4 text-blue-600" />
-                      <span>Operations</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="research">
-                    <div className="flex items-center gap-2">
-                      <Building2 className="h-4 w-4 text-blue-600" />
-                      <span>Research & Development</span>
-                    </div>
-                  </SelectItem>
+                  {departments.map((dept) => (
+                    <SelectItem key={dept.id} value={dept.id}>
+                      <div className="flex items-center gap-2">
+                        <Building2 className="h-4 w-4 text-blue-600" />
+                        <span>{dept.name}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <p className="text-xs text-slate-500 mt-1">

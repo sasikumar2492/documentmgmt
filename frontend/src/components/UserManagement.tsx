@@ -37,16 +37,9 @@ interface Role {
 
 interface UserManagementProps {
   onNavigate?: (view: string) => void;
+  /** Departments from /api/departments */
+  departments?: { id: string; name: string }[];
 }
-
-const DEPARTMENTS = [
-  { id: 'engineering', name: 'Engineering' },
-  { id: 'manufacturing', name: 'Manufacturing' },
-  { id: 'quality', name: 'Quality Assurance' },
-  { id: 'procurement', name: 'Procurement' },
-  { id: 'operations', name: 'Operations' },
-  { id: 'research', name: 'Research & Development' },
-];
 
 const LOCATIONS = [
   // Saudi Arabia - Main Cities
@@ -145,7 +138,7 @@ const DEFAULT_PERMISSIONS_BY_ROLE = {
   ],
 };
 
-export const UserManagement: React.FC<UserManagementProps> = ({ onNavigate }) => {
+export const UserManagement: React.FC<UserManagementProps> = ({ onNavigate, departments = [] }) => {
   const [activeView, setActiveView] = React.useState<'main' | 'view-users' | 'manage-roles'>('main');
   const [users, setUsers] = React.useState<User[]>([
     {
@@ -630,7 +623,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ onNavigate }) =>
                     <SelectValue placeholder="Select department" />
                   </SelectTrigger>
                   <SelectContent>
-                    {DEPARTMENTS.map(dept => (
+                    {departments.map(dept => (
                       <SelectItem key={dept.id} value={dept.id}>{dept.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -806,7 +799,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ onNavigate }) =>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {DEPARTMENTS.map(dept => (
+                    {departments.map(dept => (
                       <SelectItem key={dept.id} value={dept.id}>{dept.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -949,7 +942,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ onNavigate }) =>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Departments</SelectItem>
-                {DEPARTMENTS.map(dept => (
+                {departments.map(dept => (
                   <SelectItem key={dept.id} value={dept.id}>{dept.name}</SelectItem>
                 ))}
               </SelectContent>
@@ -997,7 +990,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ onNavigate }) =>
                       </Badge>
                     </TableCell>
                     <TableCell className="text-slate-700">
-                      {DEPARTMENTS.find(d => d.id === user.department)?.name}
+                      {departments.find(d => d.id === user.department)?.name}
                     </TableCell>
                     <TableCell>
                       <Badge className={user.status === 'active' 
@@ -1121,7 +1114,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ onNavigate }) =>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {DEPARTMENTS.map(dept => (
+                    {departments.map(dept => (
                       <SelectItem key={dept.id} value={dept.id}>{dept.name}</SelectItem>
                     ))}
                   </SelectContent>

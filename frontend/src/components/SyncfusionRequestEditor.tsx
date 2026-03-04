@@ -13,11 +13,15 @@ import {
   ZoomIn,
   ZoomOut,
   Loader2,
+  Download,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { getTemplateFileBlob, importDocxToSfdt } from '../api/templates';
 import { apiClient } from '../api/client';
 import { DocumentSmartScroll } from './DocumentSmartScroll';
+import { applyHeaderFooterToDocument, DEFAULT_HEADER_FOOTER_DATA, mergeWithDefaults, insertHeaderFooterAsContent } from '../utils/headerFooterFormatter';
+import { updateHeaderFieldsInSFDT, updateFooterFieldsInSFDT, type FooterFieldValues, type SignatoryValues } from '../utils/sfdtModifier';
+import { updateTableFields } from '../utils/tableFieldUpdater';
 import type { FormSection } from '../types';
 
 DocumentEditorContainerComponent.Inject(DocEditorToolbar);
@@ -29,6 +33,10 @@ export interface SyncfusionRequestEditorProps {
   fileName: string;
   department: string;
   status: string;
+   /** Current user's display name (for footer signatory) */
+  currentUserName: string;
+  /** Current user's role string (admin, preparator, reviewer, approver, etc.) */
+  currentUserRole: string;
   onBack: () => void;
   onSave: (sfdt: string) => void | Promise<void>;
   /** Called after saving draft; pass latest SFDT so submit can persist it */
@@ -37,6 +45,92 @@ export interface SyncfusionRequestEditorProps {
   onViewActivity?: () => void;
   /** Previously saved SFDT (draft); if set, opens this instead of template */
   initialSfdt?: string | null;
+  /** Download current document as Word; called with current SFDT so parent can export and trigger download */
+  onDownload?: (sfdt: string) => void | Promise<void>;
+}
+
+/**
+ * Helper function to update footer fields based on current user's role and document status.
+ * This is called BEFORE saving the document to populate:
+ * - Prepared By: when admin/preparator is saving at pending/draft stage
+ * - Reviewed By: when reviewer is saving at submitted/under-review stage
+ * - Approved By: when approver is saving at reviewed/approved stage
+ */
+function updateFooterFieldsBeforeSave(sfdt: string, currentUserName: string, currentUserRole: string, documentStatus: string): string {
+  try {
+    const normalizedRole = (currentUserRole || '').toLowerCase();
+    const normalizedStatus = (documentStatus || '').toLowerCase();
+    const displayName = currentUserName;
+
+    console.log('=== Footer Update ===');
+    console.log('User:', displayName, 'Role:', normalizedRole);
+    console.log('Document Status:', normalizedStatus);
+
+    const designationFromRole = () => {
+      if (normalizedRole.includes('admin')) return 'Admin';
+      if (normalizedRole.includes('preparator')) return 'Preparator';
+      if (normalizedRole.includes('manager_reviewer')) return 'Manager Reviewer';
+      if (normalizedRole.includes('manager_approver')) return 'Manager Approver';
+      if (normalizedRole.includes('reviewer')) return 'Reviewer';
+      if (normalizedRole.includes('approver')) return 'Approver';
+      return normalizedRole || 'User';
+    };
+
+    const baseSignatory: SignatoryValues = {
+      name: displayName,
+      designation: designationFromRole(),
+      signature: displayName,
+      date: new Date().toLocaleDateString(),
+    };
+
+    const footerValues: FooterFieldValues = {};
+
+    // 1) Prepared By – when admin/preparator saves during pending/draft/needs-revision stage
+    const isPreparedStage =
+      normalizedStatus === '' ||
+      normalizedStatus === 'pending' ||
+      normalizedStatus === 'draft' ||
+      normalizedStatus === 'needs-revision';
+    if (isPreparedStage && (normalizedRole.includes('admin') || normalizedRole.includes('preparator'))) {
+      footerValues.preparedBy = baseSignatory;
+      console.log('✓ Setting Prepared By for:', displayName);
+    }
+
+    // 2) Reviewed By – when reviewer saves during submitted/review stage (any document under review)
+    const isReviewStage =
+      normalizedStatus === 'submitted' ||
+      normalizedStatus === 'review-process' ||
+      normalizedStatus === 'initial-review' ||
+      normalizedStatus === 'resubmitted';
+    if (isReviewStage && normalizedRole.includes('reviewer')) {
+      footerValues.reviewedBy = baseSignatory;
+      console.log('✓ Setting Reviewed By for:', displayName);
+    }
+
+    // 3) Approved By – when approver saves after document has been reviewed
+    const isApproveStage =
+      normalizedStatus === 'reviewed' ||
+      normalizedStatus === 'approved';
+    if (isApproveStage && normalizedRole.includes('approver')) {
+      footerValues.approvedBy = baseSignatory;
+      console.log('✓ Setting Approved By for:', displayName);
+    }
+
+    if (!footerValues.preparedBy && !footerValues.reviewedBy && !footerValues.approvedBy) {
+      console.log('⚠ No footer fields to update (status or role mismatch)');
+      return sfdt;
+    }
+
+    // Only update if we have footer values to set
+    console.log('Calling updateFooterFieldsInSFDT with:', footerValues);
+    const result = updateFooterFieldsInSFDT(sfdt, footerValues);
+    console.log('=== Footer Update Complete ===');
+    return result;
+  } catch (error) {
+    // If modification fails, return the original SFDT
+    console.error('Error in updateFooterFieldsBeforeSave:', error);
+    return sfdt;
+  }
 }
 
 export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = ({
@@ -46,12 +140,15 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
   fileName,
   department,
   status,
+  currentUserName,
+  currentUserRole,
   onBack,
   onSave,
   onSubmit,
   onReset,
   onViewActivity,
   initialSfdt,
+  onDownload,
 }) => {
   const [sfdt, setSfdt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -79,8 +176,14 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
           setLoading(false);
           return;
         }
-        const result = await importDocxToSfdt(blob, fileName || 'document.docx');
+        let result = await importDocxToSfdt(blob, fileName || 'document.docx');
         if (!cancelled) {
+          result = updateHeaderFieldsInSFDT(result, {
+            sopNo: 'RSD-SOP-010',
+            versionNo: '001',
+            effectiveDate: new Date().toLocaleDateString(),
+            revisionDate: '',
+          });
           setSfdt(result);
         }
       } catch (e) {
@@ -148,11 +251,33 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
     const editor = containerRef.current?.documentEditor;
     if (!editor) return;
     try {
-      const serialized = editor.serialize();
+      let serialized = editor.serialize();
+      // Update footer fields before saving
+      serialized = updateFooterFieldsBeforeSave(serialized, currentUserName, currentUserRole, status);
       void Promise.resolve(onSave(serialized));
     } catch (_) {
       const doc = (editor as any).documentHelper?.serialize?.();
-      if (doc) void Promise.resolve(onSave(doc));
+      if (doc) {
+        let modified = updateFooterFieldsBeforeSave(doc, currentUserName, currentUserRole, status);
+        void Promise.resolve(onSave(modified));
+      }
+    }
+  };
+
+  const handleDownload = () => {
+    const editor = containerRef.current?.documentEditor;
+    if (!editor || !onDownload) return;
+    try {
+      let serialized = editor.serialize();
+      // Update footer fields before downloading
+      serialized = updateFooterFieldsBeforeSave(serialized, currentUserName, currentUserRole, status);
+      if (serialized) void Promise.resolve(onDownload(serialized));
+    } catch (_) {
+      const doc = (editor as any).documentHelper?.serialize?.();
+      if (doc) {
+        let modified = updateFooterFieldsBeforeSave(doc, currentUserName, currentUserRole, status);
+        void Promise.resolve(onDownload(modified));
+      }
     }
   };
 
@@ -161,14 +286,17 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
     let latestSfdt: string | undefined;
     if (editor) {
       try {
-        const serialized = editor.serialize();
+        let serialized = editor.serialize();
+        // Update footer fields before saving
+        serialized = updateFooterFieldsBeforeSave(serialized, currentUserName, currentUserRole, status);
         latestSfdt = serialized;
         await Promise.resolve(onSave(serialized));
       } catch (_) {
         const doc = (editor as any).documentHelper?.serialize?.();
         if (doc) {
-          latestSfdt = doc;
-          await Promise.resolve(onSave(doc));
+          let modified = updateFooterFieldsBeforeSave(doc, currentUserName, currentUserRole, status);
+          latestSfdt = modified;
+          await Promise.resolve(onSave(modified));
         }
       }
     }
@@ -326,6 +454,18 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
             Save Draft
           </Button>
 
+          {onDownload && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDownload}
+              className="border-slate-300 font-bold hidden sm:flex gap-2"
+            >
+              <Download className="h-4 w-4" />
+              Download
+            </Button>
+          )}
+
           <Button
             size="sm"
             onClick={handleSubmitClick}
@@ -364,17 +504,48 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
             enableToolbar={true}
             showPropertiesPane={false}
             toolbarItems={toolbarItems}
+            documentEditorSettings={{ optimizeSfdt: false }}
             created={() => {
+              console.log('📄 Document Editor Created Event Fired');
               const c = containerRef.current;
               if (c?.documentEditor && sfdt) {
                 c.documentEditor.open(sfdt);
                 (c.documentEditor as any).zoomFactor = 1.0;
-                // After layout, read page count for navigator
+
                 setTimeout(() => {
+                  console.log('📋 Starting document initialization...');
                   const editor = c.documentEditor as any;
+                  const headerValues = {
+                    sopNo: 'RSD-SOP-010',
+                    versionNo: '001',
+                    effectiveDate: new Date().toLocaleDateString(),
+                    revisionDate: '',
+                  };
+
+                  try {
+                    // Update header values in the header table
+                    const serialized = editor.serialize();
+                    if (serialized && typeof serialized === 'string') {
+                      let modified = updateHeaderFieldsInSFDT(serialized, headerValues);
+                      
+                      // Also apply footer preview based on current user role and document status
+                      console.log('🔵 Before footer update - User:', currentUserName, 'Role:', currentUserRole, 'Status:', status);
+                      modified = updateFooterFieldsBeforeSave(modified, currentUserName, currentUserRole, status);
+                      console.log('🟢 After footer update');
+                      
+                      // Only re-open if values were actually modified
+                      if (modified !== serialized) {
+                        editor.open(modified);
+                      }
+                    }
+                  } catch (_) {
+                    // If SFDT modification fails (e.g. optimized format), fall back to editor search/replace
+                    updateTableFields(editor, headerValues);
+                  }
+
                   const count = editor?.pageCount || 1;
                   setPageCount(typeof count === 'number' && count > 0 ? count : 1);
-                }, 500);
+                }, 1200);
               }
             }}
           />
