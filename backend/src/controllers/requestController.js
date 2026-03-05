@@ -18,10 +18,9 @@ async function list(req, res) {
       pageSize,
       view,
     } = req.query;
-    const effectiveStatus = status || (view === 'raise' ? 'draft' : undefined);
     const result = await requestService.list({
       department_id,
-      status: effectiveStatus,
+      status,
       q,
       assigned_to,
       from_date,
@@ -67,6 +66,19 @@ async function create(req, res) {
       created_by: req.user.id,
     });
     if (result) {
+      // Document uploaded event (tied to this request) for activity timeline
+      await auditLogService.insert({
+        entity_type: 'request',
+        entity_id: result.id,
+        action: 'document_uploaded',
+        user_id: req.user.id,
+        details: {
+          requestId: result.requestId,
+          fileName: result.templateFileName,
+          fileSize: result.fileSize,
+        },
+      });
+      // Request created event
       await auditLogService.insert({
         entity_type: 'request',
         entity_id: result.id,
@@ -97,13 +109,23 @@ async function update(req, res) {
         user_id: req.user.id,
         details: { from: previous.status, to: req.body.status, requestId: result.requestId },
       });
-      if (emailService.isEmailConfigured() && (req.user.role || '').toLowerCase() === 'admin') {
+      const roleLower = (req.user.role || '').toLowerCase();
+      const isAdmin = roleLower === 'admin';
+      const isApprover =
+        roleLower === 'approver' ||
+        roleLower === 'manager_approver' ||
+        roleLower.includes('approver');
+      const newStatus = req.body.status;
+      if (
+        emailService.isEmailConfigured() &&
+        (isAdmin || (isApprover && newStatus === 'approved'))
+      ) {
         emailService
           .sendRequestStatusNotification({
             requestId: req.params.id,
             actorUserId: req.user.id,
             oldStatus: previous.status,
-            newStatus: req.body.status,
+            newStatus,
           })
           .catch((err) => console.error('Request status email error:', err));
       }

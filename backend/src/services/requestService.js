@@ -59,7 +59,7 @@ async function list(filters = {}) {
     params.push(status);
   }
   if (q && String(q).trim()) {
-    conditions.push(`(r.title ILIKE $${idx} OR r.request_id ILIKE $${idx} OR d.name ILIKE $${idx})`);
+    conditions.push(`(r.title ILIKE $${idx} OR CAST(r.request_id AS TEXT) ILIKE $${idx} OR d.name ILIKE $${idx})`);
     params.push(`%${String(q).trim()}%`);
     idx += 1;
   }
@@ -77,12 +77,22 @@ async function list(filters = {}) {
   }
   const normalizedRole = (userRole || '').toLowerCase();
   if (view === 'raise') {
+    // Default status filter for Raise Request when caller didn't explicitly set status:
+    // show both draft and pending.
+    if (!status) {
+      conditions.push(`r.status IN ('draft','pending')`);
+    }
+    // Non-admins see only their own items; admin sees all.
     if (normalizedRole !== 'admin' && userId) {
       conditions.push(`r.created_by = $${idx++}`);
       params.push(userId);
     }
   } else if (view === 'library') {
-    conditions.push(`r.status <> 'draft'`);
+    // Default status filter for Document Library when caller didn't set status:
+    // show everything except draft and pending.
+    if (!status) {
+      conditions.push(`r.status NOT IN ('draft','pending')`);
+    }
   }
   const whereClause = conditions.length ? ` AND ${conditions.join(' AND ')}` : '';
 
@@ -156,14 +166,15 @@ async function getById(id) {
 
 async function create(data) {
   const { template_id, title, department_id, created_by } = data;
-  const request_id = nextRequestId();
   const client = await pool.connect();
   try {
-    await client.query(
-      `INSERT INTO requests (template_id, request_id, title, department_id, status, created_by)
-       VALUES ($1, $2, $3, $4, 'draft', $5)`,
-      [template_id, request_id, title || null, department_id || null, created_by]
+    const insertResult = await client.query(
+      `INSERT INTO requests (template_id, title, department_id, status, created_by)
+       VALUES ($1, $2, $3, 'draft', $4)
+       RETURNING id`,
+      [template_id, title || null, department_id || null, created_by]
     );
+    const newId = insertResult.rows[0]?.id;
     const q = await client.query(
       `SELECT r.*, t.file_name AS template_file_name, t.file_size AS template_file_size,
               d.name AS department_name, u.full_name AS assigned_to_name
@@ -171,8 +182,8 @@ async function create(data) {
        LEFT JOIN templates t ON r.template_id = t.id
        LEFT JOIN departments d ON r.department_id = d.id
        LEFT JOIN users u ON r.assigned_to = u.id
-       WHERE r.request_id = $1`,
-      [request_id]
+       WHERE r.id = $1`,
+      [newId]
     );
     const row = q.rows[0];
     return row ? mapRow(row) : null;

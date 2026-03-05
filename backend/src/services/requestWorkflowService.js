@@ -1,5 +1,7 @@
 const { pool } = require('../db/pool');
 const requestService = require('./requestService');
+const auditLogService = require('./auditLogService');
+const emailService = require('./emailService');
 
 function mapInstance(row) {
   return {
@@ -84,8 +86,37 @@ async function performAction(requestId, action, userId, comment) {
   const client = await pool.connect();
   try {
     if (action === 'approve' || action === 'reject' || action === 'request_revision') {
-      const newStatus = action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'needs_revision';
+      const oldStatus = request.status;
+      const newStatus =
+        action === 'approve'
+          ? 'approved'
+          : action === 'reject'
+          ? 'rejected'
+          : 'needs_revision';
+
+      // Update request status
       await requestService.update(requestId, { status: newStatus });
+
+      // Audit log for status change (for Activity Timeline)
+      await auditLogService.insert({
+        entity_type: 'request',
+        entity_id: requestId,
+        action: 'status_changed',
+        user_id: userId || null,
+        details: { from: oldStatus, to: newStatus, requestId: request.requestId },
+      });
+
+      // Email notification for status change (reviewer / approver / admin flows)
+      if (emailService.isEmailConfigured()) {
+        emailService
+          .sendRequestStatusNotification({
+            requestId,
+            actorUserId: userId || null,
+            oldStatus,
+            newStatus,
+          })
+          .catch((err) => console.error('Request status email error (workflow action):', err));
+      }
     }
     if (instance && instance.steps && instance.steps.length > 0) {
       const currentStep = instance.steps.find((s) => s.status === 'current');
