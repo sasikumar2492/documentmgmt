@@ -18,6 +18,7 @@ import {
   Shield,
 } from 'lucide-react';
 import { ReportData } from '../types';
+import { getRequestActivity } from '../api/requests';
 import { getAuditLogs, type AuditLogEntry as ApiAuditLogEntry } from '../api/auditLogs';
 
 interface ActivityLogEntry {
@@ -62,12 +63,31 @@ export function ActivityLogDetail({ requestId, onBack, reports = [] }: ActivityL
     const load = async () => {
       setLoading(true);
       setLoadError(null);
+      const reportMatch = reports.find(
+        (r) => r.id === requestId || r.requestId === requestId
+      );
+      const requestUuid = reportMatch?.id || requestId;
+
       try {
-        // requestId here may be business ID (REQ-...) or UUID.
-        // For /audit-logs we can filter by entity_id (UUID) or request_id (business ID).
-        const reportMatch = reports.find(
-          (r) => r.id === requestId || r.requestId === requestId
-        );
+        // Prefer GET /api/requests/:id/activity for request-specific audit log
+        const activityEntries = await getRequestActivity(requestUuid, { limit: 200 });
+        if (!isMounted) return;
+        if (activityEntries && activityEntries.length > 0) {
+          const mapped: ActivityLogEntry[] = activityEntries.map((e) => ({
+            id: e.id,
+            action: (e.action || '').replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()),
+            performedBy: e.user || 'System',
+            role: e.userRole || 'System',
+            timestamp: e.timestamp,
+            department: e.department || reportMatch?.department || reportMatch?.departmentName || 'General',
+            details: e.details || '',
+            esign: undefined,
+            status: 'completed',
+          }));
+          setApiActivities(mapped);
+          return;
+        }
+        // Fallback to global audit logs filtered by request
         const entries: ApiAuditLogEntry[] = await getAuditLogs({
           entity_type: 'request',
           entity_id: reportMatch?.id,

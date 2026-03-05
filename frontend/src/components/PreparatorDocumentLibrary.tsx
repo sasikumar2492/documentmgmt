@@ -114,7 +114,7 @@ export const PreparatorDocumentLibrary: React.FC<PreparatorDocumentLibraryProps>
     
     // 2. Preparator can edit drafts or documents sent back for revision
     if (role === 'preparator' || role === 'requestor') {
-      return ['pending', 'needs-revision'].includes(status);
+      return ['pending', 'needs-revision', 'needs_revision'].includes(status);
     }
     
     const isAssignedToMe = doc.assignedTo === currentUsername || 

@@ -69,7 +69,7 @@ import { SubmissionAssignmentModal } from './components/SubmissionAssignmentModa
 import { login, getMe, getStoredToken, setStoredToken, clearAuth } from './api/auth';
 import { setAuthToken, setOnUnauthorized } from './api/client';
 import type { AuthUser } from './api/auth';
-import { getTemplates, uploadTemplate, updateTemplate, getTemplateFileBlob, exportSfdtToDocx } from './api/templates';
+import { uploadTemplate, exportSfdtToDocx, deleteTemplate } from './api/templates';
 import { getDepartments } from './api/departments';
 // Note: legacy /documents API removed; templates are now the source of truth.
 import { getAuditLogs } from './api/auditLogs';
@@ -81,6 +81,7 @@ import {
   putFormData,
   postRequestWorkflowAction,
 } from './api/requests';
+import { getTemplateFileBlob, importDocxToSfdt } from './api/templates';
 
 export default function App() {
   const [showHomePage, setShowHomePage] = useState(false);
@@ -137,6 +138,8 @@ export default function App() {
     department: string;
     fileSize: string;
     uploadDate: string;
+    /** Uploaded file blob so Original Doc can be shown in AI Conversion Preview without template file API */
+    fileBlob?: Blob;
   } | null>(null);
   const [pendingWorkflow, setPendingWorkflow] = useState<{
     templateId: string;
@@ -149,7 +152,6 @@ export default function App() {
     fileType: string;
   } | null>(null);
   const [departments, setDepartments] = useState<DepartmentData[]>([]);
-  const [hasLoadedRequests, setHasLoadedRequests] = useState(false);
   
   // Restore session from stored token
   useEffect(() => {
@@ -182,39 +184,21 @@ export default function App() {
     return () => setOnUnauthorized(null as any);
   }, []);
 
-  // Lazy loaders so we don't call all APIs on initial dashboard load
+  // Load departments when needed for a view (GET /api/templates removed)
   const loadTemplatesAndDepartmentsIfNeeded = () => {
     if (!authUser) return;
-    getTemplates()
-      .then((list) => {
-        setTemplates(
-          list.map((t) => ({
-            id: t.id,
-            fileName: t.fileName,
-            uploadDate:
-              typeof t.uploadDate === 'string'
-                ? t.uploadDate.split('T')[0]
-                : new Date().toISOString().split('T')[0],
-            fileSize: t.fileSize || '0',
-            // Backend stores department_id; keep the raw ID here
-            department: t.department || '',
-            status: (t.status as 'approved' | 'pending') || 'pending',
-            parsedSections: t.parsedSections ?? undefined,
-          }))
-        );
-        return getDepartments();
-      })
+    getDepartments()
       .then((deps) => {
         if (deps) setDepartments(deps);
       })
       .catch(() => {});
   };
 
-  // Fetch requests (Raise Request / Document Library) lazily when needed
-  const fetchRequestsAsReports = (force = false) => {
+  // Fetch requests for Document Library: GET /api/requests?view=library (non-draft)
+  const fetchRequestsAsReports = (view?: 'raise' | 'library') => {
     if (!authUser) return;
-    if (!force && hasLoadedRequests) return;
-    getRequests()
+    const params = view ? { view } : undefined;
+    getRequests(params)
       .then((list) => {
         const array = Array.isArray(list) ? list : list.data;
         const mapped: ReportData[] = array.map((r) => ({
@@ -238,7 +222,6 @@ export default function App() {
           submissionComments: r.submissionComments ?? undefined,
         }));
         setReports(mapped);
-        setHasLoadedRequests(true);
       })
       .catch(() => {});
   };
@@ -501,32 +484,34 @@ export default function App() {
     }
   };
 
-  /** Load form data for a report. Returns the draft SFDT if present (so caller can open editor with it). */
+  /** Load form data for a report. Returns the draft SFDT if present (so caller can open editor with it).
+   * When API returns { data: {}, formSectionsSnapshot: null, updatedAt: null }, we treat it as valid:
+   * no _sfdt so editor opens with blank document; we keep form state as {} so Save Draft sends minimal payload.
+   * Always fetches form-data when opening a request by id (not only when report.templateId is set). */
   const loadFormData = async (reportId: string): Promise<string | null> => {
     const report = reports.find((r) => r.id === reportId);
     let draftSfdt: string | null = null;
-    if (report?.templateId) {
-      try {
-        const res = await getFormData(reportId);
-        const formDataObj = res?.data;
-        if (formDataObj != null && (typeof formDataObj === 'object' && Object.keys(formDataObj as object).length > 0 || typeof formDataObj === 'string')) {
-          let formData: FormData;
-          try {
-            formData = (typeof formDataObj === 'string' ? JSON.parse(formDataObj) : formDataObj) as FormData;
-          } catch {
-            formData = formDataObj as FormData;
-          }
-          draftSfdt = getSfdtFromFormData(formDataObj) ?? null;
-          loadedSfdtRef.current = draftSfdt;
-          setLoadedSfdtForEditor(draftSfdt);
-          setCurrentFormData(formData);
-          setReports(prev => prev.map(r =>
-            r.id === reportId ? { ...r, formData } : r
-          ));
-          return draftSfdt;
+    try {
+      const res = await getFormData(reportId);
+      const formDataObj = res?.data;
+      const hasData = formDataObj != null && (typeof formDataObj === 'object' || typeof formDataObj === 'string');
+      if (hasData) {
+        let formData: FormData;
+        try {
+          formData = (typeof formDataObj === 'string' ? JSON.parse(formDataObj) : formDataObj) as FormData;
+        } catch {
+          formData = (formDataObj as object) as FormData;
         }
-      } catch (_) {}
-    }
+        draftSfdt = getSfdtFromFormData(formDataObj) ?? null;
+        loadedSfdtRef.current = draftSfdt;
+        setLoadedSfdtForEditor(draftSfdt);
+        setCurrentFormData(formData);
+        setReports(prev => prev.map(r =>
+          r.id === reportId ? { ...r, formData } : r
+        ));
+        return draftSfdt;
+      }
+    } catch (_) {}
     loadedSfdtRef.current = null;
     setLoadedSfdtForEditor(null);
     if (report && report.formData) {
@@ -615,11 +600,10 @@ export default function App() {
     setPreviousView(currentView);
     setCurrentView(view);
 
-    // Lazy load API data only when needed for a view
+    // Load API data when needed for a view
     const viewsNeedingTemplates: ViewType[] = [
       'upload-templates',
       'document-management',
-      'document-library',
       'workflows',
       'configure-workflow',
       'training-management',
@@ -632,17 +616,17 @@ export default function App() {
       'user-management',
       'department-setup',
     ];
-    const viewsNeedingRequests: ViewType[] = [
-      'reports',
-      'document-library',
-      'raise-request',
-    ];
+    const viewsNeedingRequests: ViewType[] = ['reports', 'document-library'];
 
     if (viewsNeedingTemplates.includes(view)) {
       loadTemplatesAndDepartmentsIfNeeded();
     }
     if (viewsNeedingRequests.includes(view)) {
-      fetchRequestsAsReports();
+      fetchRequestsAsReports(view === 'document-library' ? 'library' : undefined);
+    }
+    // Raise Request list: GET /api/requests?view=raise
+    if (view === 'raise-request') {
+      fetchRequestsAsReports('raise');
     }
     if (view === 'document-library' || view === 'document-publishing') {
       fetchDocumentsForLibrary();
@@ -720,6 +704,7 @@ export default function App() {
           department: workflowResult.primaryDepartment,
           fileSize: fileSizeFormatted,
           uploadDate: uploadDateFormatted,
+          fileBlob: file,
         });
         setCurrentView('ai-conversion-preview');
         toast.success('AI Analysis Complete!', {
@@ -796,8 +781,8 @@ export default function App() {
       let departmentId: string | null = null;
       if (departmentSlug) {
         try {
-          const departments = await getDepartments();
-          const match = departments.find(
+          const deps = await getDepartments();
+          const match = deps.find(
             (d) =>
               d.name.toLowerCase().replace(/\s+&\s+/g, ' ').replace(/\s+/g, '_') === departmentSlug ||
               departmentSlug === d.name.toLowerCase().replace(/\s+/g, '_')
@@ -806,11 +791,37 @@ export default function App() {
         } catch (_) {}
       }
 
-      const updated = await updateTemplate(templateId, {
-        file_name: fileName,
+      // Create a new request when user clicks "Save Template" (POST /api/requests)
+      const req = await createRequest({
+        template_id: templateId,
+        title: fileName,
         department_id: departmentId ?? undefined,
-        parsed_sections: updatedSections,
       });
+
+      let formDataFromApi: FormData | undefined;
+      try {
+        const formRes = await getFormData(req.id);
+        const raw = formRes?.data;
+        if (raw != null && typeof raw === 'object' && Object.keys(raw as object).length > 0) {
+          formDataFromApi = raw as unknown as FormData;
+        }
+      } catch (_) {}
+
+      const newReport: ReportData = {
+        id: req.id,
+        requestId: req.requestId,
+        templateId: req.templateId,
+        fileName: req.templateFileName || fileName,
+        uploadDate: typeof req.createdAt === 'string' ? req.createdAt.split('T')[0] : new Date().toISOString().split('T')[0],
+        assignedTo: req.assignedTo || '',
+        department: req.departmentName || departmentSlug,
+        status: (req.status === 'draft' ? 'pending' : req.status) as ReportData['status'],
+        lastModified: req.updatedAt || req.createdAt,
+        fileSize: req.fileSize ?? pendingConversion.fileSize ?? '',
+        documentType: 'Request',
+        formData: formDataFromApi,
+      };
+      setReports((prev) => [newReport, ...prev]);
 
       // If there is an existing request for this template, PATCH it as well so
       // backend metadata stays in sync with the converted template.
@@ -818,8 +829,8 @@ export default function App() {
         .filter((r) => r.templateId === templateId)
         .sort(
           (a, b) =>
-            new Date(b.updatedAt || b.createdAt).getTime() -
-            new Date(a.updatedAt || a.createdAt).getTime()
+            new Date(b.lastModified || b.uploadDate || 0).getTime() -
+            new Date(a.lastModified || a.uploadDate || 0).getTime()
         )[0];
       if (relatedRequest) {
         await updateRequest(relatedRequest.id, {
@@ -829,15 +840,16 @@ export default function App() {
 
       setTemplates((prev) => {
         const others = prev.filter((t) => t.id !== templateId);
+        const uploadDate = new Date().toISOString().split('T')[0];
         return [
           {
-            id: updated.id,
-            fileName: updated.fileName,
-            uploadDate: typeof updated.uploadDate === 'string' ? updated.uploadDate.split('T')[0] : new Date().toISOString().split('T')[0],
-            fileSize: updated.fileSize || '0',
-            department: updated.department || departmentSlug,
-            status: (updated.status as 'approved' | 'pending') || 'pending',
-            parsedSections: updated.parsedSections ?? updatedSections,
+            id: templateId,
+            fileName,
+            uploadDate,
+            fileSize: pendingConversion.fileSize || '0',
+            department: departmentId || departmentSlug,
+            status: 'pending' as const,
+            parsedSections: updatedSections,
           },
           ...others,
         ];
@@ -848,13 +860,13 @@ export default function App() {
       addAuditLog(
         'document_uploaded',
         'document',
-        updated.id,
+        templateId,
         fileName,
         `Document uploaded and converted.`,
         departmentSlug
       );
 
-      toast.success('Template Saved Successfully!');
+      toast.success('Template Saved Successfully! Request created.');
       setCurrentView('raise-request');
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to save template');
@@ -897,18 +909,23 @@ export default function App() {
 
   const handleEditForm = async (requestIdOrReportId: string) => {
     const report = reports.find(r => r.requestId === requestIdOrReportId) || reports.find(r => r.id === requestIdOrReportId);
-    if (report) {
-      setCurrentDocumentId(report.id);
-      setIsEditMode(true);
-      const draftSfdt = await loadFormData(report.id);
-      if (report.templateId && templates.some(t => t.id === report.templateId)) {
-        loadedSfdtRef.current = draftSfdt;
-        setLoadedSfdtForEditor(draftSfdt);
-        setCurrentView('syncfusion-editor');
-      } else {
-        setCurrentView('document-edit-screen-fixed');
-      }
+    if (!report) return;
+    setCurrentDocumentId(report.id);
+    setIsEditMode(true);
+    let draftSfdt = await loadFormData(report.id);
+    if (!draftSfdt && report.templateId) {
+      try {
+        const blob = await getTemplateFileBlob(report.templateId);
+        const fileName = report.fileName || 'document.docx';
+        const ext = (fileName || '').toLowerCase().split('.').pop() || '';
+        if (['doc', 'docx'].includes(ext)) {
+          draftSfdt = await importDocxToSfdt(blob, fileName);
+        }
+      } catch (_) {}
     }
+    loadedSfdtRef.current = draftSfdt;
+    setLoadedSfdtForEditor(draftSfdt);
+    setCurrentView('syncfusion-editor');
   };
 
   const handleFormSelection = async (templateId: string) => {
@@ -968,6 +985,16 @@ export default function App() {
     toast.success('Report Deleted');
   };
 
+  const handleDeleteTemplate = async (templateId: string) => {
+    try {
+      await deleteTemplate(templateId);
+      setTemplates((prev) => prev.filter((t) => t.id !== templateId));
+      toast.success('Document deleted');
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Failed to delete document');
+    }
+  };
+
   const handlePreviewDocument = async (reportId: string) => {
     let report = reports.find((r) => r.id === reportId);
 
@@ -976,26 +1003,58 @@ export default function App() {
       report = reports.find((r) => r.templateId === reportId);
     }
 
-    if (report) {
-      // For template-based documents, always fetch the latest form data so preview shows the updated Word file.
-      if (report.templateId) {
-        try {
-          const res = await getFormData(reportId);
-          const formDataObj = (res as Record<string, unknown>)?.data ?? res;
-          const withFormData = { ...report, formData: formDataObj as FormData };
-          // Keep reports state in sync so future downloads also see the latest _sfdt
-          setReports((prev) =>
-            prev.map((r) => (r.id === reportId ? (withFormData as ReportData) : r))
-          );
-          setSelectedReportForPreview(withFormData);
-        } catch (_) {
-          setSelectedReportForPreview(report);
-        }
-      } else {
+    // If still no matching request, treat as a template-only row and build a lightweight
+    // ReportData so we can preview the original file from /templates.
+    if (!report) {
+      const template = templates.find((t) => t.id === reportId);
+      if (!template) return;
+
+      const uploadDate =
+        typeof template.uploadDate === 'string'
+          ? template.uploadDate.split('T')[0]
+          : new Date().toISOString().split('T')[0];
+
+      const syntheticReport: ReportData = {
+        id: template.id,
+        requestId: 'TEMPLATE',
+        templateId: template.id,
+        fileName: template.fileName,
+        uploadDate,
+        lastModified: template.uploadDate || uploadDate,
+        assignedTo: '',
+        department: template.department,
+        status: (template.status as ReportData['status']) || 'pending',
+        fileSize: template.fileSize || 'N/A',
+        documentType: 'Template',
+        product: 'General',
+        site: 'Main Site',
+        uploadedBy: 'System',
+        fromUser: undefined,
+      };
+
+      setSelectedReportForPreview(syntheticReport);
+      setCurrentView('document-preview');
+      return;
+    }
+
+    // For template-based documents, always fetch the latest form data so preview shows the updated Word file.
+    if (report.templateId) {
+      try {
+        const res = await getFormData(report.id);
+        const formDataObj = (res as Record<string, unknown>)?.data ?? res;
+        const withFormData = { ...report, formData: formDataObj as FormData };
+        // Keep reports state in sync so future downloads also see the latest _sfdt
+        setReports((prev) =>
+          prev.map((r) => (r.id === report.id ? (withFormData as ReportData) : r))
+        );
+        setSelectedReportForPreview(withFormData);
+      } catch (_) {
         setSelectedReportForPreview(report);
       }
-      setCurrentView('document-preview');
+    } else {
+      setSelectedReportForPreview(report);
     }
+    setCurrentView('document-preview');
   };
 
   const handleDownloadDocument = async (reportId: string, fileName: string) => {
@@ -1062,30 +1121,21 @@ export default function App() {
             return;
           }
 
-          console.error('Exported SFDT blob does not look like a DOCX – falling back to original template download.');
+          console.error('Exported SFDT blob does not look like a DOCX.');
           toast.error('Unable to export edited document', {
-            description: 'Falling back to the original template file. Please check the Syncfusion document server.',
+            description: 'Please check the Syncfusion document server.',
           });
+          return;
         }
 
-        // Either no saved draft or export failed validation: download the original template file
-        const originalBlob = await getTemplateFileBlob(report.templateId);
-        const fallbackUrl = URL.createObjectURL(originalBlob);
-        const a = document.createElement('a');
-        a.href = fallbackUrl;
-        // Use the original file's extension so Word does not complain about mismatched format
-        a.download = baseNameWithoutExt + originalExt;
-        a.rel = 'noopener';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(fallbackUrl);
-        toast.success('Download completed');
+        toast.error('Download not available', {
+          description: 'No saved document content. Open the request and save draft first.',
+        });
         return;
       }
 
       toast.error('Download not available', {
-        description: 'This demo document does not have an attached file to download yet.',
+        description: 'This document does not have an attached file to download yet.',
       });
     } catch (err) {
       console.error('Download error', err);
@@ -1341,7 +1391,7 @@ export default function App() {
           priority: assignment.priority,
           submission_comments: assignment.comments || undefined,
         });
-        fetchRequestsAsReports(true);
+        fetchRequestsAsReports('library');
         toast.success('Workflow Initiated', {
           description: `Sequential review started with ${assignment.reviewerIds.length} members.`
         });
@@ -1506,38 +1556,10 @@ export default function App() {
         return;
       }
 
-      // 2) No draft yet – download the original template as-is
-      toast.info('Download started', { description: `Downloading ${fileName}...` });
-      const blob = await getTemplateFileBlob(templateId);
-      const type = (blob.type || '').toLowerCase();
-      if (type.includes('application/json') || type.includes('text/html')) {
-        toast.error('Download failed', { description: 'File not available or invalid.' });
-        return;
-      }
-      const name = (fileName || 'document').trim() || 'document';
-      const hasExt = /\.(docx?|doc|pdf|xlsx?|xls)$/i.test(name);
-      const downloadName = hasExt ? name : `${name}.docx`;
-      const ext = (downloadName.match(/\.(docx?|doc|pdf|xlsx?|xls)$/i) || ['.docx'])[0].toLowerCase();
-      const mimeByExt: Record<string, string> = {
-        '.doc': 'application/msword',
-        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        '.pdf': 'application/pdf',
-        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        '.xls': 'application/vnd.ms-excel',
-      };
-      const mime = mimeByExt[ext] || 'application/octet-stream';
-      const blobForDownload =
-        blob.type && !blob.type.startsWith('application/octet') ? blob : new Blob([blob], { type: mime });
-      const url = URL.createObjectURL(blobForDownload);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = downloadName;
-      a.rel = 'noopener';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      toast.success('Download completed');
+      // 2) No draft yet – template file API removed; only request-based download is available
+      toast.error('Download not available', {
+        description: 'Open the request and save a draft to enable download.',
+      });
     } catch (err) {
       console.error('Template download error', err);
       toast.error('Download failed', { description: 'Please try again or contact support.' });
@@ -1545,30 +1567,18 @@ export default function App() {
   };
 
   const renderRaiseRequest = () => {
-    // Drive Raise Request list from /requests API (reports state),
-    // but keep the RaiseRequest component API by mapping requests into a Template-like shape.
-    const requestBackedTemplates = reports.map((r) => ({
-      id: r.id,
-      fileName: r.fileName || r.templateFileName || 'Document',
-      uploadDate:
-        typeof r.createdAt === 'string'
-          ? r.createdAt.split('T')[0]
-          : new Date().toISOString().split('T')[0],
-      fileSize: r.fileSize || 'N/A',
-      department: r.department || r.departmentName || '',
-      status: r.status as any,
-      parsedSections: undefined,
-    }));
-
+    // Raise Request list: GET /api/requests?view=raise. Open row = edit request; "Create / Start Request" = POST /api/requests.
     return (
       <div className="bg-gradient-to-br from-pale-blue-50 via-pale-blue-100 to-pale-blue-200 min-h-full">
         <RaiseRequest
-          templates={requestBackedTemplates}
-          // For Raise Request view, selecting a row should open that request's form
-          onFormSelect={handleViewForm}
+          listMode="requests"
+          reports={reports}
+          templates={[]}
+          onFormSelect={(id) => handleEditForm(id)}
           onNavigate={handleViewChange}
           departments={departments}
-          onDownloadTemplate={handleDownloadTemplate}
+          onDownloadTemplate={handleDownloadDocument ? (id, fileName) => handleDownloadDocument(id, fileName) : undefined}
+          userRole={loginData.role}
         />
       </div>
     );
@@ -1600,56 +1610,7 @@ export default function App() {
   };
 
   const renderDocumentLibrary = () => {
-    // For admin/preparator, prefer the latest request per template so preview/edit/download
-    // operate on the updated document. If no request exists for a template, fall back to
-    // a template-only "report-like" row.
-    const templateReports: ReportData[] = templates.map((t) => {
-      const deptName =
-        (departments.find((d) => d.id === t.department)?.name ?? t.departmentName) || 'N/A';
-
-      const requestsForTemplate = reports
-        .filter((r) => r.templateId === t.id)
-        .sort(
-          (a, b) =>
-            new Date(b.updatedAt || b.createdAt).getTime() -
-            new Date(a.updatedAt || a.createdAt).getTime()
-        );
-
-      const latestRequest = requestsForTemplate[0];
-
-      if (latestRequest) {
-        return {
-          ...latestRequest,
-          templateId: t.id,
-          fileName: t.fileName || latestRequest.fileName,
-          department: deptName,
-          fileSize: t.fileSize || latestRequest.fileSize || 'N/A',
-          documentType: (latestRequest.documentType as any) || 'Request',
-        } as ReportData;
-      }
-
-      const uploadDate =
-        typeof t.uploadDate === 'string'
-          ? t.uploadDate.split('T')[0]
-          : new Date().toISOString().split('T')[0];
-
-      return {
-        id: t.id,
-        requestId: 'TEMPLATE',
-        templateId: t.id,
-        fileName: t.fileName,
-        uploadDate,
-        lastModified: t.updatedAt || t.uploadDate || uploadDate,
-        department: deptName,
-        status: t.status as any,
-        fileSize: t.fileSize || 'N/A',
-        assignedTo: '',
-        assignedToName: undefined,
-        documentType: 'Template',
-      } as ReportData;
-    });
-
-    // Existing request-based "libraryReports" for non-admin roles
+    // Drive Document Library list from /requests API (reports state).
     let filtered = reports;
     if (loginData.role === 'manager_reviewer') {
       filtered = filtered.filter(
@@ -1669,9 +1630,9 @@ export default function App() {
     return (
       <div className="bg-gradient-to-br from-pale-blue-50 via-pale-blue-100 to-pale-blue-200 min-h-full">
         {loginData.role === 'admin' || loginData.role === 'preparator' ? (
-          // Admin & Preparator: All Reports dashboard layout, but rows built from /api/templates
+          // Admin & Preparator: All Reports dashboard layout, rows built from /api/requests
           <PreparatorDocumentLibrary
-            reports={templateReports}
+            reports={libraryReports}
             onViewForm={handleViewForm}
             onPreviewDocument={handlePreviewDocument}
             onDeleteReport={handleDeleteReport}
@@ -1769,6 +1730,7 @@ export default function App() {
           department={pendingConversion.department}
           fileSize={pendingConversion.fileSize}
           uploadDate={pendingConversion.uploadDate}
+          fileBlob={pendingConversion.fileBlob}
           onSave={handleConversionSave}
           onCancel={handleConversionCancel}
         />
@@ -2057,6 +2019,7 @@ export default function App() {
                     status={report?.status || 'pending'}
                     userRole={loginData.role}
                     username={loginData.username}
+                    fullName={authUser?.fullName ?? loginData.username}
                     onBack={() => setCurrentView(loginData.role === 'preparator' ? 'document-library' : 'raise-request')}
                     onSave={handleSave}
                     onSubmit={handleSubmit}
@@ -2083,16 +2046,19 @@ export default function App() {
             const template = report?.templateId
               ? templates.find((t) => t.id === report.templateId)
               : templates.find((t) => (report ? t.fileName === report.fileName : t.id === currentDocumentId));
-            if (!report || !template) return <div className="p-8 text-center text-slate-600 flex-1">Document not found</div>;
+            if (!report) return <div className="p-8 text-center text-slate-600 flex-1">Document not found</div>;
+            const templateId = template?.id ?? report.templateId ?? report.id;
+            const fileName = template?.fileName ?? report.fileName ?? 'document.docx';
+            const department = template?.department ?? report.department ?? 'Engineering';
             const initialSfdt = loadedSfdtRef.current ?? loadedSfdtForEditor ?? (currentFormData as Record<string, unknown>)?._sfdt;
             return (
               <div className="flex-1 h-full overflow-hidden" key={currentDocumentId}>
                 <SyncfusionRequestEditor
-                  templateId={template.id}
+                  templateId={templateId}
                   requestId={report.requestId || report.id}
-                  documentTitle={template.fileName || report.fileName}
-                  fileName={template.fileName || report.fileName}
-                  department={template.department || report.department || 'Engineering'}
+                  documentTitle={fileName}
+                  fileName={fileName}
+                  department={department}
                   status={report.status || 'pending'}
                   currentUserName={authUser?.fullName || authUser?.username || loginData.username}
                   currentUserRole={authUser?.role || loginData.role}
@@ -2121,6 +2087,7 @@ export default function App() {
                   status={report?.status || 'pending'}
                   userRole={loginData.role}
                   username={loginData.username}
+                  fullName={authUser?.fullName ?? loginData.username}
                   onBack={() => setCurrentView('document-library')}
                   onSave={handleSave}
                   onSubmit={handleSubmit}

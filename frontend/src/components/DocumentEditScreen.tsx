@@ -35,13 +35,27 @@ import { DynamicFormViewer } from './DynamicFormViewer';
 import { DocumentSmartScroll } from './DocumentSmartScroll';
 import { PageRemarksModal } from './PageRemarksModal';
 import { motion, AnimatePresence } from 'motion/react';
-import { getTemplateFileBlob, importDocxToSfdt } from '../api/templates';
 import { apiClient } from '../api/client';
 import { applyHeaderFooterToDocument, mergeWithDefaults, insertHeaderFooterAsContent } from '../utils/headerFooterFormatter';
 import { updateHeaderFieldsInSFDT, updateFooterFieldsInSFDT, type FooterFieldValues, type SignatoryValues } from '../utils/sfdtModifier';
 import { updateTableFields } from '../utils/tableFieldUpdater';
 
 DocumentEditorContainerComponent.Inject(DocEditorToolbar);
+
+/** Minimal blank SFDT when form-data has no _sfdt (e.g. new request). */
+const BLANK_SFDT = JSON.stringify({
+  sections: [
+    {
+      sectionFormat: { pageWidth: 612, pageHeight: 792 },
+      blocks: [
+        {
+          paragraphFormat: { listFormat: {} },
+          inlines: [{ text: '', characterFormat: { fontSize: 11, fontFamily: 'Calibri' } }],
+        },
+      ],
+    },
+  ],
+});
 
 interface DocumentEditScreenProps {
   documentTitle: string;
@@ -66,7 +80,9 @@ interface DocumentEditScreenProps {
   currentFormData?: FormData;
   updateFormData?: (field: keyof FormData, value: any) => void;
   username?: string;
-  
+  /** Full name from /auth/me (for footer: Name and Signature) */
+  fullName?: string;
+
   // For DynamicForm (Converted from Template)
   isDynamicForm?: boolean;
   sections?: FormSection[];
@@ -93,6 +109,7 @@ export const DocumentEditScreen = ({
   currentFormData,
   updateFormData,
   username,
+  fullName,
   isDynamicForm,
   sections,
   onDynamicSave,
@@ -114,57 +131,24 @@ export const DocumentEditScreen = ({
   const [activeRemarkPage, setActiveRemarkPage] = useState(null);
   const [pageRemarks, setPageRemarks] = useState({});
   
-  // Always use Syncfusion editor mode for document editing
-  const isSyncfusionMode = true;
+  // Use Syncfusion editor only when explicitly enabled by props
+  const isSyncfusionMode = !!useSyncfusionEditor;
   const effectiveTemplateId = templateId;
   const totalPages = pageCount;
 
-  // Load Syncfusion document
+  // Load Syncfusion document from form-data _sfdt, or blank document when none (e.g. new request after upload)
   useEffect(() => {
     if (!isSyncfusionMode) return;
-    
-    let cancelled = false;
-
-    const load = async () => {
-      if (initialSfdt && initialSfdt.length > 0) {
-        setSfdt(initialSfdt);
-        setSyncLoading(false);
-        return;
-      }
-      
-      if (!effectiveTemplateId) {
-        setSyncError('No template or document ID provided for Word document');
-        setSyncLoading(false);
-        return;
-      }
-
-      try {
-        setSyncLoading(true);
-        const blob = await getTemplateFileBlob(effectiveTemplateId);
-        if (cancelled) return;
-        
-        const ext = (fileName || '').toLowerCase().split('.').pop() || '';
-        if (!['doc', 'docx'].includes(ext)) {
-          setSyncError('Only Word documents (.doc/.docx) are supported in the editor.');
-          setSyncLoading(false);
-          return;
-        }
-        
-        const result = await importDocxToSfdt(blob, fileName || 'document.docx');
-        if (!cancelled) {
-          setSfdt(result);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setSyncError(e instanceof Error ? e.message : 'Failed to load document');
-        }
-      } finally {
-        if (!cancelled) setSyncLoading(false);
-      }
-    };
-
-    load();
-    return () => { cancelled = true; };
+    if (initialSfdt && initialSfdt.length > 0) {
+      setSfdt(initialSfdt);
+      setSyncError(null);
+    } else if (!effectiveTemplateId) {
+      setSyncError('No template or document ID provided for Word document');
+    } else {
+      setSfdt(BLANK_SFDT);
+      setSyncError(null);
+    }
+    setSyncLoading(false);
   }, [effectiveTemplateId, fileName, initialSfdt, isSyncfusionMode]);
 
   // Syncfusion editor styles
@@ -511,13 +495,9 @@ export const DocumentEditScreen = ({
 
                         const designation = designationFromRole();
 
-                        // Name: based on current username (e.g. reviewer1 -> Reviewer1)
-                        const rawNameSource = username || displayName || 'User';
-                        const nameValue =
-                          rawNameSource.charAt(0).toUpperCase() + rawNameSource.slice(1);
-
-                        // Signature: role-based label (e.g. Reviewer Name, Approver Name)
-                        const signatureValue = designation ? `${designation} Name` : nameValue;
+                        // Footer from /auth/me: Name = fullName, Designation = role, Signature = fullName
+                        const nameValue = (fullName || username || displayName || 'User').trim() || 'User';
+                        const signatureValue = (fullName || nameValue).trim() || nameValue;
 
                         const baseSignatory: SignatoryValues = {
                           name: nameValue,
@@ -527,23 +507,26 @@ export const DocumentEditScreen = ({
                         };
                         const footerValues: FooterFieldValues = {};
                         
-                        // 1) Prepared By – when admin/preparator saves during pending/draft/needs-revision stage
+                        // 1) Prepared By – when admin/preparator saves during pending/draft only (not when doing revision)
+                        const isRevisionStage = normalizedStatus === 'rejected' || normalizedStatus === 'needs-revision' || normalizedStatus === 'needs_revision';
                         const isPreparedStage =
-                          normalizedStatus === '' ||
-                          normalizedStatus === 'pending' ||
-                          normalizedStatus === 'draft' ||
-                          normalizedStatus === 'needs-revision';
+                          !isRevisionStage &&
+                          (normalizedStatus === '' ||
+                            normalizedStatus === 'pending' ||
+                            normalizedStatus === 'draft');
                         if (isPreparedStage && (normalizedRole.includes('admin') || normalizedRole.includes('preparator'))) {
                           footerValues.preparedBy = baseSignatory;
                         }
 
-                        // 2) Reviewed By – when reviewer saves during submitted/review stage
+                        // 2) Reviewed By – when reviewer saves during submitted/review stage, OR when admin/preparator is doing revision (rejected/needs-revision)
                         const isReviewStage =
                           normalizedStatus === 'submitted' ||
                           normalizedStatus === 'review-process' ||
                           normalizedStatus === 'initial-review' ||
                           normalizedStatus === 'resubmitted';
                         if (isReviewStage && normalizedRole.includes('reviewer')) {
+                          footerValues.reviewedBy = baseSignatory;
+                        } else if (isRevisionStage && (normalizedRole.includes('admin') || normalizedRole.includes('preparator'))) {
                           footerValues.reviewedBy = baseSignatory;
                         }
 

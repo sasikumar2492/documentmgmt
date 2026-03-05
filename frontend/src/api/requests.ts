@@ -1,4 +1,7 @@
 import { apiClient } from './client';
+import { getStoredToken } from './auth';
+
+const getApiBase = () => import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
 export interface RequestApi {
   id: string;
@@ -27,6 +30,8 @@ export interface FormDataApi {
 }
 
 export interface RequestListParams {
+  /** 'raise' = Raise Request list; 'library' = Document Library list (non-draft) */
+  view?: 'raise' | 'library';
   department_id?: string;
   status?: string;
   q?: string;
@@ -66,10 +71,10 @@ export async function getRequest(id: string): Promise<RequestApi> {
 }
 
 export async function createRequest(body: {
-  template_id: string;
+  template_id?: string;
   title?: string;
   department_id?: string;
-}): Promise<RequestApi> {
+} = {}): Promise<RequestApi> {
   const { data } = await apiClient.post<RequestApi>('/requests', body);
   return data;
 }
@@ -92,6 +97,24 @@ export async function updateRequest(
 export async function getFormData(requestId: string): Promise<FormDataApi> {
   const { data } = await apiClient.get<FormDataApi>(`/requests/${requestId}/form-data`);
   return data;
+}
+
+/** Fetch request document file as Blob (e.g. template DOCX for this request). Used when form-data has no _sfdt so we can call document-editor/Import. */
+export async function getRequestFileBlob(requestId: string): Promise<Blob> {
+  const base = getApiBase();
+  const token = getStoredToken();
+  const res = await fetch(`${base}/api/requests/${requestId}/file`, {
+    method: 'GET',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    throw new Error(res.status === 404 ? 'Request file not found' : `Download failed (${res.status})`);
+  }
+  const contentType = (res.headers.get('Content-Type') || '').toLowerCase();
+  if (contentType.includes('application/json') || contentType.includes('text/html')) {
+    throw new Error('Server returned invalid content for file');
+  }
+  return res.blob();
 }
 
 export async function putFormData(

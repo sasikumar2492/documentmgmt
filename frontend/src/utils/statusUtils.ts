@@ -11,6 +11,7 @@ export const getStatusColor = (status: string) => {
     case 'approved': return 'bg-green-600 text-white border-0 text-xs';
     case 'rejected': return 'bg-red-500 text-white border-0 text-xs';
     case 'needs-revision': return 'bg-amber-500 text-white border-0 text-xs';
+    case 'needs_revision': return 'bg-amber-500 text-white border-0 text-xs';
     case 'published': return 'bg-purple-700 text-white border-0 text-xs';
     default: return 'bg-gray-400 text-white border-0 text-xs';
   }
@@ -29,6 +30,7 @@ export const getStatusLabel = (status: string) => {
     case 'approved': return 'Approved';
     case 'rejected': return 'Rejected';
     case 'needs-revision': return 'Needs Revision';
+    case 'needs_revision': return 'Need Revision';
     case 'published': return 'Published';
     default: return 'Unknown';
   }

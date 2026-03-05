@@ -16,15 +16,30 @@ import {
   Download,
 } from 'lucide-react';
 import { Button } from './ui/button';
-import { getTemplateFileBlob, importDocxToSfdt } from '../api/templates';
 import { apiClient } from '../api/client';
 import { DocumentSmartScroll } from './DocumentSmartScroll';
 import { applyHeaderFooterToDocument, DEFAULT_HEADER_FOOTER_DATA, mergeWithDefaults, insertHeaderFooterAsContent } from '../utils/headerFooterFormatter';
 import { updateHeaderFieldsInSFDT, updateFooterFieldsInSFDT, type FooterFieldValues, type SignatoryValues } from '../utils/sfdtModifier';
 import { updateTableFields } from '../utils/tableFieldUpdater';
+import { APP_VERSION } from '../constants';
 import type { FormSection } from '../types';
 
 DocumentEditorContainerComponent.Inject(DocEditorToolbar);
+
+/** Minimal blank SFDT when backend does not return _sfdt in form-data (e.g. new request after upload). */
+const BLANK_SFDT = JSON.stringify({
+  sections: [
+    {
+      sectionFormat: { pageWidth: 612, pageHeight: 792 },
+      blocks: [
+        {
+          paragraphFormat: { listFormat: {} },
+          inlines: [{ text: '', characterFormat: { fontSize: 11, fontFamily: 'Calibri' } }],
+        },
+      ],
+    },
+  ],
+});
 
 export interface SyncfusionRequestEditorProps {
   templateId: string;
@@ -50,10 +65,11 @@ export interface SyncfusionRequestEditorProps {
 }
 
 /**
- * Helper function to update footer fields based on current user's role and document status.
- * This is called BEFORE saving the document to populate:
+ * Helper function to update footer fields based on current user from /auth/me and document status.
+ * Footer: Name = fullName, Designation = role, Signature = fullName.
+ * Populates:
  * - Prepared By: when admin/preparator is saving at pending/draft stage
- * - Reviewed By: when reviewer is saving at submitted/under-review stage
+ * - Reviewed By: when reviewer is saving at submitted/under-review stage, or admin/preparator doing revision
  * - Approved By: when approver is saving at reviewed/approved stage
  */
 function updateFooterFieldsBeforeSave(sfdt: string, currentUserName: string, currentUserRole: string, documentStatus: string): string {
@@ -85,18 +101,19 @@ function updateFooterFieldsBeforeSave(sfdt: string, currentUserName: string, cur
 
     const footerValues: FooterFieldValues = {};
 
-    // 1) Prepared By – when admin/preparator saves during pending/draft/needs-revision stage
+    // 1) Prepared By – when admin/preparator saves during pending/draft only (not when doing revision)
+    const isRevisionStage = normalizedStatus === 'rejected' || normalizedStatus === 'needs-revision' || normalizedStatus === 'needs_revision';
     const isPreparedStage =
-      normalizedStatus === '' ||
-      normalizedStatus === 'pending' ||
-      normalizedStatus === 'draft' ||
-      normalizedStatus === 'needs-revision';
+      !isRevisionStage &&
+      (normalizedStatus === '' ||
+        normalizedStatus === 'pending' ||
+        normalizedStatus === 'draft');
     if (isPreparedStage && (normalizedRole.includes('admin') || normalizedRole.includes('preparator'))) {
       footerValues.preparedBy = baseSignatory;
       console.log('✓ Setting Prepared By for:', displayName);
     }
 
-    // 2) Reviewed By – when reviewer saves during submitted/review stage (any document under review)
+    // 2) Reviewed By – when reviewer saves during submitted/review stage, OR when admin/preparator is doing revision (rejected/needs-revision)
     const isReviewStage =
       normalizedStatus === 'submitted' ||
       normalizedStatus === 'review-process' ||
@@ -105,6 +122,10 @@ function updateFooterFieldsBeforeSave(sfdt: string, currentUserName: string, cur
     if (isReviewStage && normalizedRole.includes('reviewer')) {
       footerValues.reviewedBy = baseSignatory;
       console.log('✓ Setting Reviewed By for:', displayName);
+    } else if (isRevisionStage && (normalizedRole.includes('admin') || normalizedRole.includes('preparator'))) {
+      // Override Reviewed by to who is doing the revision when document was rejected or sent back for revision
+      footerValues.reviewedBy = baseSignatory;
+      console.log('✓ Setting Reviewed By (revision) for:', displayName);
     }
 
     // 3) Approved By – when approver saves after document has been reviewed
@@ -133,6 +154,46 @@ function updateFooterFieldsBeforeSave(sfdt: string, currentUserName: string, cur
   }
 }
 
+/**
+ * Helper to update header fields (Version No. and Revision Date) only for specific
+ * workflow states at the SFDT level.
+ * Business rule:
+ * - When status is "pending" (draft-like), "draft", or "approved", set:
+ *   - Version No. → "01"
+ *   - Revision Date → today's date
+ * - For all other statuses, header must remain unchanged.
+ */
+function updateHeaderFieldsForStatus(sfdt: string, documentStatus: string): string {
+  try {
+    console.log('=== Header Update ===');
+    const normalizedStatus = (documentStatus || '').toLowerCase();
+    const isDraftLike = normalizedStatus === 'draft' || normalizedStatus === 'pending';
+    const isApproved = normalizedStatus === 'approved';
+    console.log('Status (normalized):', normalizedStatus, 'isDraftLike:', isDraftLike, 'isApproved:', isApproved);
+    if (!isDraftLike && !isApproved) {
+      console.log('HeaderUpdate: skipping, status not draft/pending/approved');
+      return sfdt;
+    }
+
+    const headerValues = {
+      versionNo: APP_VERSION,
+      revisionDate: new Date().toLocaleDateString(),
+    };
+    console.log('HeaderUpdate: applying headerValues:', headerValues);
+
+    const updated = updateHeaderFieldsInSFDT(sfdt, headerValues);
+    if (updated === sfdt) {
+      console.log('HeaderUpdate: SFDT unchanged after updateHeaderFieldsInSFDT');
+    } else {
+      console.log('HeaderUpdate: SFDT modified, new length:', updated.length);
+    }
+    return updated;
+  } catch (err) {
+    console.error('HeaderUpdate: error while updating header:', err);
+    return sfdt;
+  }
+}
+
 export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = ({
   templateId,
   requestId,
@@ -157,47 +218,43 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
   const [pageCount, setPageCount] = useState(1);
   const [activePageIndex, setActivePageIndex] = useState(0);
   const containerRef = useRef<DocumentEditorContainerComponent>(null);
+  const sfdtRef = useRef<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
+    if (initialSfdt && initialSfdt.length > 0) {
+      setSfdt(initialSfdt);
+      setError(null);
+    } else {
+      setSfdt(BLANK_SFDT);
+      setError(null);
+    }
+    setLoading(false);
+  }, [templateId, fileName, initialSfdt]);
 
-    const load = async () => {
-      if (initialSfdt && initialSfdt.length > 0) {
-        setSfdt(initialSfdt);
-        setLoading(false);
-        return;
-      }
-      try {
-        const blob = await getTemplateFileBlob(templateId);
-        if (cancelled) return;
-        const ext = (fileName || '').toLowerCase().split('.').pop() || '';
-        if (!['doc', 'docx'].includes(ext)) {
-          setError('Only Word documents (.doc/.docx) are supported in the editor.');
-          setLoading(false);
-          return;
-        }
-        let result = await importDocxToSfdt(blob, fileName || 'document.docx');
-        if (!cancelled) {
-          result = updateHeaderFieldsInSFDT(result, {
-            sopNo: 'RSD-SOP-010',
-            versionNo: '001',
-            effectiveDate: new Date().toLocaleDateString(),
-            revisionDate: '',
-          });
-          setSfdt(result);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : 'Failed to load document');
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
+  sfdtRef.current = sfdt;
+
+  // When editor becomes ready and sfdt is set, open the document (backup if "created" fires early or fails)
+  useEffect(() => {
+    if (!sfdt) return;
+    const content = sfdtRef.current || sfdt;
+    const tryOpen = () => {
+      const editor = containerRef.current?.documentEditor;
+      if (editor && content && typeof editor.open === 'function') {
+        try {
+          editor.open(content);
+          (editor as any).zoomFactor = 1.0;
+          const count = (editor as any)?.pageCount ?? 1;
+          setPageCount(typeof count === 'number' && count > 0 ? count : 1);
+        } catch (_) {}
       }
     };
-
-    load();
-    return () => { cancelled = true; };
-  }, [templateId, fileName, initialSfdt]);
+    const t1 = setTimeout(tryOpen, 150);
+    const t2 = setTimeout(tryOpen, 800);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [sfdt]);
 
   // Inject CSS to ensure proper layout and prevent overflow
   useEffect(() => {
@@ -252,13 +309,20 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
     if (!editor) return;
     try {
       let serialized = editor.serialize();
-      // Update footer fields before saving
+      // Conditionally update header + footer fields before saving
+      serialized = updateHeaderFieldsForStatus(serialized, status);
       serialized = updateFooterFieldsBeforeSave(serialized, currentUserName, currentUserRole, status);
+      // If header changed, reflect it in the live editor so the user sees it
+      if (serialized && typeof serialized === 'string') {
+        editor.open(serialized);
+      }
       void Promise.resolve(onSave(serialized));
     } catch (_) {
       const doc = (editor as any).documentHelper?.serialize?.();
       if (doc) {
-        let modified = updateFooterFieldsBeforeSave(doc, currentUserName, currentUserRole, status);
+        let modified = updateHeaderFieldsForStatus(doc, status);
+        modified = updateFooterFieldsBeforeSave(modified, currentUserName, currentUserRole, status);
+        editor.open(modified);
         void Promise.resolve(onSave(modified));
       }
     }
@@ -269,13 +333,15 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
     if (!editor || !onDownload) return;
     try {
       let serialized = editor.serialize();
-      // Update footer fields before downloading
+      // Conditionally update header + footer fields before downloading
+      serialized = updateHeaderFieldsForStatus(serialized, status);
       serialized = updateFooterFieldsBeforeSave(serialized, currentUserName, currentUserRole, status);
       if (serialized) void Promise.resolve(onDownload(serialized));
     } catch (_) {
       const doc = (editor as any).documentHelper?.serialize?.();
       if (doc) {
-        let modified = updateFooterFieldsBeforeSave(doc, currentUserName, currentUserRole, status);
+        let modified = updateHeaderFieldsForStatus(doc, status);
+        modified = updateFooterFieldsBeforeSave(modified, currentUserName, currentUserRole, status);
         void Promise.resolve(onDownload(modified));
       }
     }
@@ -287,14 +353,16 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
     if (editor) {
       try {
         let serialized = editor.serialize();
-        // Update footer fields before saving
+        // Conditionally update header + footer fields before saving
+        serialized = updateHeaderFieldsForStatus(serialized, status);
         serialized = updateFooterFieldsBeforeSave(serialized, currentUserName, currentUserRole, status);
         latestSfdt = serialized;
         await Promise.resolve(onSave(serialized));
       } catch (_) {
         const doc = (editor as any).documentHelper?.serialize?.();
         if (doc) {
-          let modified = updateFooterFieldsBeforeSave(doc, currentUserName, currentUserRole, status);
+          let modified = updateHeaderFieldsForStatus(doc, status);
+          modified = updateFooterFieldsBeforeSave(modified, currentUserName, currentUserRole, status);
           latestSfdt = modified;
           await Promise.resolve(onSave(modified));
         }
@@ -506,41 +574,39 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
             toolbarItems={toolbarItems}
             documentEditorSettings={{ optimizeSfdt: false }}
             created={() => {
-              console.log('📄 Document Editor Created Event Fired');
               const c = containerRef.current;
-              if (c?.documentEditor && sfdt) {
-                c.documentEditor.open(sfdt);
-                (c.documentEditor as any).zoomFactor = 1.0;
+              const content = sfdtRef.current || sfdt;
+              if (c?.documentEditor && content) {
+                try {
+                  c.documentEditor.open(content);
+                  (c.documentEditor as any).zoomFactor = 1.0;
+                } catch (_) {}
 
                 setTimeout(() => {
-                  console.log('📋 Starting document initialization...');
                   const editor = c.documentEditor as any;
-                  const headerValues = {
-                    sopNo: 'RSD-SOP-010',
-                    versionNo: '001',
-                    effectiveDate: new Date().toLocaleDateString(),
-                    revisionDate: '',
-                  };
-
                   try {
-                    // Update header values in the header table
+                    // 1) Ensure header is visually updated when editor first opens
+                    //    (in case SFDT-based update missed any layout-specific cases).
+                    updateTableFields(editor, {
+                      versionNo: APP_VERSION,
+                      revisionDate: new Date().toLocaleDateString(),
+                    });
+
+                    // 2) Apply footer preview based on current user role and document status
                     const serialized = editor.serialize();
                     if (serialized && typeof serialized === 'string') {
-                      let modified = updateHeaderFieldsInSFDT(serialized, headerValues);
-                      
-                      // Also apply footer preview based on current user role and document status
-                      console.log('🔵 Before footer update - User:', currentUserName, 'Role:', currentUserRole, 'Status:', status);
-                      modified = updateFooterFieldsBeforeSave(modified, currentUserName, currentUserRole, status);
-                      console.log('🟢 After footer update');
-                      
-                      // Only re-open if values were actually modified
+                      const modified = updateFooterFieldsBeforeSave(
+                        serialized,
+                        currentUserName,
+                        currentUserRole,
+                        status
+                      );
                       if (modified !== serialized) {
                         editor.open(modified);
                       }
                     }
                   } catch (_) {
-                    // If SFDT modification fails (e.g. optimized format), fall back to editor search/replace
-                    updateTableFields(editor, headerValues);
+                    // Ignore header/footer preview errors; best-effort only.
                   }
 
                   const count = editor?.pageCount || 1;

@@ -448,7 +448,7 @@ export const DocumentLibrary: React.FC<DocumentLibraryProps> = (({
 
     // 3. Preparator/requestor can edit drafts or documents sent back for revision
     if (role === 'preparator' || role === 'requestor') {
-      return ['pending', 'needs-revision'].includes(status);
+      return ['pending', 'needs-revision', 'needs_revision'].includes(status);
     }
 
     const isAssignedToMe =
@@ -995,6 +995,7 @@ export const DocumentLibrary: React.FC<DocumentLibraryProps> = (({
                   <SelectItem value="approved">Approved</SelectItem>
                   <SelectItem value="rejected">Rejected</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="needs_revision">Need Revision</SelectItem>
                 </SelectContent>
               </Select>
               <Select value={filterDepartment} onValueChange={setFilterDepartment}>
@@ -1152,6 +1153,7 @@ export const DocumentLibrary: React.FC<DocumentLibraryProps> = (({
                   <SelectItem value="rejected">Rejected</SelectItem>
                   <SelectItem value="initial-review">Initial Review</SelectItem>
                   <SelectItem value="review-process">Review Process</SelectItem>
+                  <SelectItem value="needs_revision">Need Revision</SelectItem>
                 </SelectContent>
               </Select>
             </div>
