@@ -1,6 +1,7 @@
 const requestService = require('../services/requestService');
 const auditLogService = require('../services/auditLogService');
 const requestWorkflowService = require('../services/requestWorkflowService');
+const emailService = require('../services/emailService');
 
 async function list(req, res) {
   try {
@@ -96,6 +97,32 @@ async function update(req, res) {
         user_id: req.user.id,
         details: { from: previous.status, to: req.body.status, requestId: result.requestId },
       });
+      if (emailService.isEmailConfigured() && (req.user.role || '').toLowerCase() === 'admin') {
+        emailService
+          .sendRequestStatusNotification({
+            requestId: req.params.id,
+            actorUserId: req.user.id,
+            oldStatus: previous.status,
+            newStatus: req.body.status,
+          })
+          .catch((err) => console.error('Request status email error:', err));
+      }
+    }
+    const newAssigneeRaw = req.body.assigned_to ?? req.body.assignedTo;
+    if (
+      emailService.isEmailConfigured() &&
+      newAssigneeRaw &&
+      previous &&
+      previous.assignedTo !== newAssigneeRaw &&
+      (req.user.role || '').toLowerCase() !== 'admin'
+    ) {
+      emailService
+        .sendRequestAssignmentNotification({
+          requestId: req.params.id,
+          actorUserId: req.user.id,
+          newAssigneeId: newAssigneeRaw,
+        })
+        .catch((err) => console.error('Request assignment email error:', err));
     }
     res.json(result);
   } catch (err) {

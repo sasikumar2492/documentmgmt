@@ -47,6 +47,23 @@ async function getUsersForNotification(userIds) {
   }
 }
 
+async function getAdminsForNotification() {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(
+      `SELECT id, full_name, email, username FROM users WHERE role = $1`,
+      ['admin']
+    );
+    const domain = config.emailDomain || 'fedhubsoftware.com';
+    return result.rows.map((r) => ({
+      email: (r.email && r.email.trim()) ? r.email.trim() : `${(r.username || '').replace(/\s+/g, '')}@${domain}`,
+      fullName: r.full_name || r.username || 'Admin',
+    }));
+  } finally {
+    client.release();
+  }
+}
+
 /**
  * Get request owner and assignee user ids for a request.
  */
@@ -127,6 +144,215 @@ async function sendDocumentUploadNotification(payload) {
 }
 
 /**
+ * Send notification when a template is uploaded from AI Conversion.
+ * Recipients: uploader; CC: all admins.
+ */
+async function sendTemplateUploadNotification(payload) {
+  const { template, uploaderUserId } = payload;
+  if (!template || !uploaderUserId) return;
+
+  const [uploader] = await getUsersForNotification([uploaderUserId]);
+  const admins = await getAdminsForNotification();
+  if (!uploader && admins.length === 0) return;
+
+  const subject = `Template uploaded: ${template.fileName}`;
+  const text = [
+    `A template has been uploaded to PHARMA DMS (AI Conversion).`,
+    ``,
+    `Template: ${template.fileName}`,
+    template.departmentName ? `Department: ${template.departmentName}` : '',
+    `Status: ${template.status || 'draft'}`,
+    `Uploaded at: ${template.uploadDate || new Date().toISOString()}`,
+  ].filter(Boolean).join('\n');
+
+  const html = `
+    <p>A template has been uploaded to <strong>PHARMA DMS</strong> (AI Conversion).</p>
+    <p><strong>Template:</strong> ${escapeHtml(template.fileName)}</p>
+    ${template.departmentName ? `<p><strong>Department:</strong> ${escapeHtml(String(template.departmentName))}</p>` : ''}
+    <p><strong>Status:</strong> ${escapeHtml(String(template.status || 'draft'))}</p>
+    <p><strong>Uploaded at:</strong> ${escapeHtml(String(template.uploadDate || new Date().toISOString()))}</p>
+  `;
+
+  const cc = admins.map((a) => a.email).filter(Boolean);
+  if (uploader && uploader.email) {
+    await sendMail({
+      to: uploader.email,
+      cc,
+      subject,
+      text,
+      html,
+    });
+  } else if (cc.length > 0) {
+    await sendMail({
+      to: cc[0],
+      cc: cc.slice(1),
+      subject,
+      text,
+      html,
+    });
+  }
+}
+
+/**
+ * Send notification when a request is (re)assigned.
+ * Typical flow: preparator -> reviewer, reviewer -> approver.
+ * Recipients: new assignee (To); CC: actor (who assigned) and all admins.
+ */
+async function sendRequestAssignmentNotification(payload) {
+  const { requestId, actorUserId, newAssigneeId } = payload;
+  if (!requestId || !actorUserId || !newAssigneeId) return;
+
+  const client = await pool.connect();
+  try {
+    const q = await client.query(
+      `SELECT r.request_id, r.title, t.file_name AS template_file_name
+       FROM requests r
+       LEFT JOIN templates t ON r.template_id = t.id
+       WHERE r.id = $1`,
+      [requestId]
+    );
+    const row = q.rows[0];
+    if (!row) return;
+
+    const [actor] = await getUsersForNotification([actorUserId]);
+    const [assignee] = await getUsersForNotification([newAssigneeId]);
+    const admins = await getAdminsForNotification();
+    if (!assignee || !assignee.email) return;
+
+    const subject = `Request assignment: ${row.request_id || row.title || row.template_file_name || 'Request'}`;
+    const text = [
+      `A request has been assigned in PHARMA DMS.`,
+      ``,
+      row.request_id ? `Request ID: ${row.request_id}` : '',
+      row.title ? `Title: ${row.title}` : '',
+      row.template_file_name ? `Template: ${row.template_file_name}` : '',
+      actor && actor.fullName ? `Assigned by: ${actor.fullName}` : '',
+      `Assigned to: ${assignee.fullName || assignee.email}`,
+      `Assigned at: ${new Date().toISOString()}`,
+    ].filter(Boolean).join('\n');
+
+    const html = `
+      <p>A request has been assigned in <strong>PHARMA DMS</strong>.</p>
+      ${row.request_id ? `<p><strong>Request ID:</strong> ${escapeHtml(String(row.request_id))}</p>` : ''}
+      ${row.title ? `<p><strong>Title:</strong> ${escapeHtml(String(row.title))}</p>` : ''}
+      ${row.template_file_name ? `<p><strong>Template:</strong> ${escapeHtml(String(row.template_file_name))}</p>` : ''}
+      ${actor && actor.fullName ? `<p><strong>Assigned by:</strong> ${escapeHtml(actor.fullName)}</p>` : ''}
+      <p><strong>Assigned to:</strong> ${escapeHtml(assignee.fullName || assignee.email)}</p>
+      <p><strong>Assigned at:</strong> ${escapeHtml(new Date().toISOString())}</p>
+    `;
+
+    const cc = [
+      ...(actor && actor.email ? [actor.email] : []),
+      ...admins.map((a) => a.email).filter(Boolean),
+    ];
+
+    await sendMail({
+      to: assignee.email,
+      cc,
+      subject,
+      text,
+      html,
+    });
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Send notification when an admin changes a request status.
+ * Recipients: all participants (creator, assignee, reviewers), excluding the admin;
+ * each gets an email with admins in CC.
+ */
+async function sendRequestStatusNotification(payload) {
+  const { requestId, actorUserId, oldStatus, newStatus } = payload;
+  if (!requestId || !newStatus || oldStatus === newStatus) return;
+
+  const client = await pool.connect();
+  try {
+    const q = await client.query(
+      `SELECT r.request_id, r.title, r.created_by, r.assigned_to, r.review_sequence,
+              t.file_name AS template_file_name
+       FROM requests r
+       LEFT JOIN templates t ON r.template_id = t.id
+       WHERE r.id = $1`,
+      [requestId]
+    );
+    const row = q.rows[0];
+    if (!row) return;
+
+    const participantIds = new Set();
+    if (row.created_by) participantIds.add(row.created_by);
+    if (row.assigned_to) participantIds.add(row.assigned_to);
+    if (row.review_sequence) {
+      try {
+        const seq = Array.isArray(row.review_sequence)
+          ? row.review_sequence
+          : JSON.parse(row.review_sequence);
+        if (Array.isArray(seq)) {
+          seq.forEach((id) => {
+            if (id) participantIds.add(id);
+          });
+        }
+      } catch {
+        // ignore parse errors
+      }
+    }
+    if (actorUserId) participantIds.delete(actorUserId);
+
+    const recipients = await getUsersForNotification([...participantIds]);
+    const admins = await getAdminsForNotification();
+    if (recipients.length === 0 && admins.length === 0) return;
+
+    const subject = `Request status updated: ${row.request_id || row.title || row.template_file_name || 'Request'}`;
+    const text = [
+      `A request status has been updated in PHARMA DMS.`,
+      ``,
+      row.request_id ? `Request ID: ${row.request_id}` : '',
+      row.title ? `Title: ${row.title}` : '',
+      row.template_file_name ? `Template: ${row.template_file_name}` : '',
+      `Previous status: ${oldStatus}`,
+      `New status: ${newStatus}`,
+      `Updated at: ${new Date().toISOString()}`,
+    ].filter(Boolean).join('\n');
+
+    const html = `
+      <p>A request status has been updated in <strong>PHARMA DMS</strong>.</p>
+      ${row.request_id ? `<p><strong>Request ID:</strong> ${escapeHtml(String(row.request_id))}</p>` : ''}
+      ${row.title ? `<p><strong>Title:</strong> ${escapeHtml(String(row.title))}</p>` : ''}
+      ${row.template_file_name ? `<p><strong>Template:</strong> ${escapeHtml(String(row.template_file_name))}</p>` : ''}
+      <p><strong>Previous status:</strong> ${escapeHtml(oldStatus)}</p>
+      <p><strong>New status:</strong> ${escapeHtml(newStatus)}</p>
+      <p><strong>Updated at:</strong> ${escapeHtml(new Date().toISOString())}</p>
+    `;
+
+    const adminEmails = admins.map((a) => a.email).filter(Boolean);
+
+    if (recipients.length > 0) {
+      for (const r of recipients) {
+        if (!r.email) continue;
+        await sendMail({
+          to: r.email,
+          cc: adminEmails,
+          subject,
+          text,
+          html,
+        });
+      }
+    } else if (adminEmails.length > 0) {
+      await sendMail({
+        to: adminEmails[0],
+        cc: adminEmails.slice(1),
+        subject,
+        text,
+        html,
+      });
+    }
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * Send notification when document status is updated.
  * Recipients: document creator, request owner/assignee (if linked).
  */
@@ -187,7 +413,11 @@ module.exports = {
   isEmailConfigured,
   getTransport,
   getUsersForNotification,
+  getAdminsForNotification,
   sendDocumentUploadNotification,
   sendDocumentStatusChangeNotification,
+  sendTemplateUploadNotification,
+  sendRequestAssignmentNotification,
+  sendRequestStatusNotification,
   sendMail,
 };

@@ -2,6 +2,7 @@ const path = require('path');
 const Busboy = require('busboy');
 const fileStorage = require('../services/fileStorage');
 const templateService = require('../services/templateService');
+const emailService = require('../services/emailService');
 
 function parseMultipart(req) {
   return new Promise((resolve, reject) => {
@@ -91,6 +92,14 @@ async function upload(req, res) {
     }
     const result = await templateService.upload(file, fields, req.user.id);
     res.status(201).json(result);
+    if (emailService.isEmailConfigured()) {
+      emailService
+        .sendTemplateUploadNotification({
+          template: result,
+          uploaderUserId: req.user.id,
+        })
+        .catch((err) => console.error('Template upload email error:', err));
+    }
   } catch (err) {
     console.error('Template upload error:', err);
     res.status(500).json({ error: 'Failed to upload template' });
