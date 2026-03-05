@@ -557,6 +557,15 @@ export default function App() {
     setCurrentView('dashboard');
     setShowHomePage(false);
     setIntendedModule(null);
+    // Clear request/listing and document context so next user doesn't see previous user's data
+    setReports([]);
+    setCurrentDocumentId(null);
+    setLoadedSfdtForEditor(null);
+    loadedSfdtRef.current = null;
+    setSelectedReportForReview(null);
+    setSelectedReportForPreview(null);
+    setSelectedRequestIdForAudit(null);
+    setSelectedActivityLogRequestId(null);
   };
 
   const handleTicketFlowLogin = (username: string, password: string) => {
