@@ -56,6 +56,10 @@ export async function updateTemplate(
   return data;
 }
 
+export async function deleteTemplate(id: string): Promise<void> {
+  await apiClient.delete(`/templates/${id}`);
+}
+
 export interface TemplateDownloadInfo {
   downloadUrl: string;
   expiresAt: string;

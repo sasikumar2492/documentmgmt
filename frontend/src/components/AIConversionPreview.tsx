@@ -52,6 +52,8 @@ interface AIConversionPreviewProps {
   department: string;
   fileSize: string;
   uploadDate: string;
+  /** Uploaded file blob so Original Doc can be shown without template file API */
+  fileBlob?: Blob;
   onSave: (sections: FormSection[], updatedFileName: string, updatedDepartment: string) => void;
   onCancel: () => void;
 }
@@ -133,6 +135,7 @@ export const AIConversionPreview: React.FC<AIConversionPreviewProps> = ({
   department,
   fileSize,
   uploadDate,
+  fileBlob,
   onSave,
   onCancel,
 }) => {
@@ -390,6 +393,7 @@ export const AIConversionPreview: React.FC<AIConversionPreviewProps> = ({
                 <OriginalDocViewer
                   templateId={templateId}
                   fileName={fileNameState}
+                  initialBlob={fileBlob}
                   currentDocPage={currentDocPage}
                   onDocPagesReady={(count) => {
                     setDocPageCount(count);

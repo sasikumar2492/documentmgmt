@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { getTemplateFileBlob, importDocxToSfdt } from '../api/templates';
+import { importDocxToSfdt } from '../api/templates';
 import { apiClient } from '../api/client';
 import { renderAsync } from 'docx-preview';
 import {
@@ -180,6 +180,8 @@ interface OriginalDocViewerProps {
   fileName: string;
   /** Optional SFDT content; when provided, viewer will open this instead of converting the original DOCX. */
   initialSfdt?: string | null;
+  /** Optional file blob (e.g. uploaded file in AI Conversion Preview); when provided, viewer uses this instead of template file API. */
+  initialBlob?: Blob | null;
   /** Current page index (0-based) for Original Doc; when changed, viewer scrolls to that page. */
   currentDocPage?: number;
   /** Called with document page count after Word/PDF is rendered. */
@@ -212,6 +214,7 @@ export const OriginalDocViewer: React.FC<OriginalDocViewerProps> = ({
   templateId,
   fileName,
   initialSfdt,
+  initialBlob,
   currentDocPage = 0,
   onDocPagesReady,
   onDocPageChange,
@@ -243,39 +246,44 @@ export const OriginalDocViewer: React.FC<OriginalDocViewerProps> = ({
   const [docxPagesByHeight, setDocxPagesByHeight] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setError(null);
-      setWordBlob(null);
-      try {
-        const blob = await getTemplateFileBlob(templateId);
-        if (cancelled) return;
-        const ext = (fileName || '').toLowerCase().split('.').pop() || '';
-        if (ext === 'pdf') {
-          const base64 = await blobToBase64(blob);
-          if (cancelled) return;
+    setLoading(true);
+    setError(null);
+    setWordBlob(null);
+    setDocumentPath(null);
+    const ext = (fileName || '').toLowerCase().split('.').pop() || '';
+    if (initialSfdt && initialSfdt.length > 0) {
+      setFileType('word');
+      setWordBlob(new Blob());
+      setLoading(false);
+    } else if (initialBlob && initialBlob.size > 0) {
+      if (ext === 'pdf') {
+        setFileType('pdf');
+        blobToBase64(initialBlob).then((base64) => {
           setDocumentPath(`data:application/pdf;base64,${base64}`);
-        } else if (['doc', 'docx'].includes(ext)) {
-          setFileType('word');
-          setWordBlob(blob);
-          setDocumentPath(null);
-        } else {
-          setFileType('other');
-          setDocumentPath(null);
-        }
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load document');
-      } finally {
-        if (!cancelled) setLoading(false);
+          setLoading(false);
+        }).catch(() => {
+          setError('Failed to load document');
+          setLoading(false);
+        });
+      } else if (['doc', 'docx'].includes(ext)) {
+        setFileType('word');
+        setWordBlob(initialBlob);
+        setLoading(false);
+      } else {
+        setFileType('other');
+        setError('Unsupported file type for preview.');
+        setLoading(false);
       }
-    })();
-    return () => { cancelled = true; };
-  }, [templateId, fileName]);
+    } else {
+      setError('Document content is not available. Load the request form data first.');
+      setLoading(false);
+    }
+  }, [templateId, fileName, initialSfdt, initialBlob]);
 
-  // Try Syncfusion Docker Import for Word; on failure fall back to docx-preview
+  // Use initialSfdt when available; otherwise would convert wordBlob via import (template file API removed)
   useEffect(() => {
-    if (fileType !== 'word' || !wordBlob) return;
+    if (fileType !== 'word') return;
+    if (!wordBlob && !initialSfdt?.length) return;
     let cancelled = false;
     setWordViewMode('trying-syncfusion');
     setSfdt(null);
@@ -287,6 +295,7 @@ export const OriginalDocViewer: React.FC<OriginalDocViewerProps> = ({
         cancelled = true;
       };
     }
+    if (!wordBlob) return () => { cancelled = true; };
     importDocxToSfdt(wordBlob, fileName || 'document.docx')
       .then((result) => {
         if (!cancelled) {
@@ -513,18 +522,10 @@ export const OriginalDocViewer: React.FC<OriginalDocViewerProps> = ({
                     (c.documentEditor as any).isReadOnly = true;
                   }
                   
-                  // Update header/footer after document is loaded
+                  // Optionally update footer after document is loaded
                   setTimeout(() => {
                     const editor = c.documentEditor as any;
-                    // 1) Header table metadata
-                    updateTableFields(editor, {
-                      sopNo: 'RSD-SOP-010',
-                      versionNo: 'Yash2',
-                      effectiveDate: '10/04/2026',
-                      revisionDate: '',
-                    });
-
-                    // 2) Dynamic footer signatories when status + user are available (preview path)
+                    // Dynamic footer signatories when status + user are available (preview path)
                     if (status && currentUserName && currentUserRole) {
                       try {
                         const normalizedRole = currentUserRole.toLowerCase();
@@ -549,10 +550,10 @@ export const OriginalDocViewer: React.FC<OriginalDocViewerProps> = ({
                         };
 
                         const footerValues: FooterFieldValues = {};
+                        const isRevisionStage = statusKey.includes('reject') || statusKey.includes('needs_revision') || statusKey.includes('needs-revision');
                         const isPreparedStage =
-                          !statusKey ||
-                          statusKey.includes('pending') ||
-                          statusKey.includes('draft');
+                          !isRevisionStage &&
+                          (!statusKey || statusKey.includes('pending') || statusKey.includes('draft'));
                         if (isPreparedStage && (normalizedRole.includes('admin') || normalizedRole.includes('preparator'))) {
                           footerValues.preparedBy = baseSignatory;
                         }
@@ -560,9 +561,10 @@ export const OriginalDocViewer: React.FC<OriginalDocViewerProps> = ({
                         const isReviewStage =
                           statusKey.includes('submit') ||
                           statusKey.includes('review') ||
-                          statusKey.includes('reject') ||
                           statusKey.includes('approved');
                         if (isReviewStage && normalizedRole.includes('reviewer')) {
+                          footerValues.reviewedBy = baseSignatory;
+                        } else if (isRevisionStage && (normalizedRole.includes('admin') || normalizedRole.includes('preparator'))) {
                           footerValues.reviewedBy = baseSignatory;
                         }
 

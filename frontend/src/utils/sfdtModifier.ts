@@ -334,9 +334,6 @@ export function updateFooterFieldsInSFDT(sfdtJson: string, values: FooterFieldVa
             const cellValue = signatoryData?.[rowKey];
 
             if (cellValue != null && cellValue !== '') {
-              const existingText = getCellText(cells[c]);
-              if (existingText && existingText.trim().length > 0) continue;
-
               setCellText(cells[c], cellValue);
             }
           }

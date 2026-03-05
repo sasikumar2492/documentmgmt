@@ -4,7 +4,7 @@ export interface TemplateData {
   uploadDate: string;
   fileSize: string;
   department: string; // Single department ID for this template
-  status?: 'approved' | 'pending' | 'submitted';
+  status?: 'approved' | 'pending' | 'submitted' | 'needs_revision';
   parsedSections?: FormSection[];
   convertedFormData?: Record<string, any>;
 }
@@ -47,7 +47,7 @@ export interface ReportData {
   /** Display name for assignee (from API); show instead of UUID when set */
   assignedToName?: string;
   department?: string;
-  status: 'pending' | 'submitted' | 'resubmitted' | 'initial-review' | 'review-process' | 'final-review' | 'reviewed' | 'approved' | 'rejected' | 'needs-revision' | 'published';
+  status: 'pending' | 'submitted' | 'resubmitted' | 'initial-review' | 'review-process' | 'final-review' | 'reviewed' | 'approved' | 'rejected' | 'needs-revision' | 'needs_revision' | 'published';
   lastModified: string;
   fileSize: string;
   formData?: FormData;

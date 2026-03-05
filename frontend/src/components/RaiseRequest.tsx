@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { Upload, FileText, Sparkles, FileCheck, FilePlus, Cloud, FileUp, Plus, Download, Send, Eye, Calendar, Building2 } from 'lucide-react';
+import { Upload, FileText, Sparkles, FileCheck, FilePlus, Cloud, FileUp, Download, Send, Eye, Calendar, Building2, Trash2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
-import { TemplateData, ViewType, DepartmentData } from '../types';
+import { TemplateData, ViewType, DepartmentData, ReportData } from '../types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Breadcrumbs } from './Breadcrumbs';
 import {
@@ -19,38 +19,59 @@ import { ImageWithFallback } from './figma/ImageWithFallback';
 import { getStatusColor, getStatusLabel } from '../utils/statusUtils';
 
 interface RaiseRequestProps {
-  templates: TemplateData[];
-  onFormSelect: (templateId: string) => void;
+  /** When listMode is 'templates', show templates and "Raise Request" per row. When 'requests', show requests from GET /api/requests?view=raise and "Open" + "Create / Start Request". */
+  listMode?: 'templates' | 'requests';
+  templates?: TemplateData[];
+  /** When listMode is 'requests', this is the list from GET /api/requests?view=raise. */
+  reports?: ReportData[];
+  onFormSelect: (id: string) => void;
   onNavigate?: (view: ViewType) => void;
   /** Optional list of departments so we can show department names instead of raw IDs. */
   departments?: DepartmentData[];
   /** Download document file (served via /api/requests/:id/file). When provided, the Download button uses this. */
   onDownloadTemplate?: (templateId: string, fileName: string) => void | Promise<void>;
+  /** Current user role; when 'admin', delete button is shown. */
+  userRole?: string;
+  /** Called when admin deletes a template; only used when userRole is admin and listMode is 'templates'. */
+  onDeleteTemplate?: (templateId: string) => void | Promise<void>;
 }
 
 export const RaiseRequest: React.FC<RaiseRequestProps> = ({
+  listMode = 'templates',
   templates = [],
+  reports = [],
   onFormSelect,
   onNavigate,
   departments = [],
   onDownloadTemplate,
+  userRole,
+  onDeleteTemplate,
 }) => {
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const isAdmin = (userRole || '').toLowerCase().includes('admin');
 
-  const handleRaiseRequest = (templateId: string) => {
+  const handleOpenOrRaise = (id: string) => {
     if (typeof onFormSelect === 'function') {
-      onFormSelect(templateId);
+      onFormSelect(id);
     } else {
       console.error('onFormSelect is not provided or not a function');
     }
   };
 
-  const handleDownload = (template: TemplateData) => {
+  const handleDownload = (item: TemplateData | ReportData) => {
+    const id = item.id;
+    const name = 'fileName' in item ? item.fileName : (item as ReportData).fileName;
     if (onDownloadTemplate) {
-      void Promise.resolve(onDownloadTemplate(template.id, template.fileName || 'document'));
+      void Promise.resolve(onDownloadTemplate(id, name || 'document'));
     } else {
-      alert(`Downloading: ${template.fileName}`);
+      alert(`Downloading: ${name}`);
     }
+  };
+
+  const handleDelete = (template: TemplateData) => {
+    if (!onDeleteTemplate) return;
+    if (!window.confirm(`Delete "${template.fileName}"? This cannot be undone.`)) return;
+    void Promise.resolve(onDeleteTemplate(template.id));
   };
 
   // Map department ID -> human-readable name
@@ -61,19 +82,37 @@ export const RaiseRequest: React.FC<RaiseRequestProps> = ({
       }, {})
     : {};
 
-  const getDepartmentLabel = (departmentId: string) => {
+  const getDepartmentLabel = (departmentId: string | undefined) => {
     if (!departmentId) return 'Unassigned';
     return departmentNameById[departmentId] || departmentId;
   };
 
-  // Filter templates based on search (by document name, department id, or department name)
-  const filteredTemplates = templates.filter((template) => {
-    const docName = template.fileName?.toLowerCase() || '';
-    const deptId = template.department?.toLowerCase() || '';
-    const deptName = getDepartmentLabel(template.department).toLowerCase();
-    const term = searchTerm.toLowerCase();
-    return docName.includes(term) || deptId.includes(term) || deptName.includes(term);
-  });
+  const isRequestsMode = listMode === 'requests';
+
+  // For requests mode: filter by requestId, title/fileName, department
+  const filteredReports: ReportData[] = isRequestsMode
+    ? reports.filter((r) => {
+        const term = searchTerm.toLowerCase();
+        const reqId = (r.requestId || '').toLowerCase();
+        const title = (r.fileName || r.requestId || '').toLowerCase();
+        const dept = (r.department || '').toLowerCase();
+        const deptLabel = getDepartmentLabel(r.department).toLowerCase();
+        return reqId.includes(term) || title.includes(term) || dept.includes(term) || deptLabel.includes(term);
+      })
+    : [];
+
+  // For templates mode: filter templates
+  const filteredTemplates = isRequestsMode
+    ? []
+    : templates.filter((template) => {
+        const docName = template.fileName?.toLowerCase() || '';
+        const deptId = template.department?.toLowerCase() || '';
+        const deptName = getDepartmentLabel(template.department).toLowerCase();
+        const term = searchTerm.toLowerCase();
+        return docName.includes(term) || deptId.includes(term) || deptName.includes(term);
+      });
+
+  const itemsCount = isRequestsMode ? filteredReports.length : filteredTemplates.length;
 
   const documentThumbnails: Record<string, string> = {
     'sample-template-1': 'https://images.unsplash.com/photo-1693045181254-08462917f681?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=400',
@@ -99,7 +138,9 @@ export const RaiseRequest: React.FC<RaiseRequestProps> = ({
                   Raise Request
                 </h1>
                 <p className="text-slate-600 mt-1">
-                  Select an uploaded document to create a new request
+                  {isRequestsMode
+                    ? 'Your requests and drafts. Open to edit or create a new request.'
+                    : 'Select an uploaded document to create a new request'}
                 </p>
               </div>
             </div>
@@ -128,23 +169,106 @@ export const RaiseRequest: React.FC<RaiseRequestProps> = ({
               Uploaded Documents
             </CardTitle>
             <CardDescription className="text-slate-600">
-              {filteredTemplates.length} document{filteredTemplates.length !== 1 ? 's' : ''} available
+              {itemsCount} {isRequestsMode ? 'request' : 'document'}{itemsCount !== 1 ? 's' : ''} available
             </CardDescription>
           </CardHeader>
           <CardContent className="p-0">
-            {filteredTemplates.length === 0 ? (
+            {itemsCount === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 px-4">
                 <div className="w-20 h-20 rounded-full bg-slate-100 flex items-center justify-center mb-4">
                   <FileText className="h-10 w-10 text-slate-400" />
                 </div>
                 <h3 className="text-lg font-semibold text-slate-700 mb-2">
-                  No documents found
+                  {isRequestsMode ? 'No requests found' : 'No documents found'}
                 </h3>
                 <p className="text-slate-500 text-center max-w-md">
-                  {searchTerm 
-                    ? 'No documents match your search criteria. Try adjusting your search.'
-                    : 'No uploaded documents available. Please upload documents in AI Conversion first.'}
+                  {searchTerm
+                    ? 'No items match your search criteria. Try adjusting your search.'
+                    : isRequestsMode
+                      ? 'Click "Create / Start Request" to create a new request.'
+                      : 'No uploaded documents available. Please upload documents in AI Conversion first.'}
                 </p>
+              </div>
+            ) : isRequestsMode ? (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-slate-50 hover:bg-slate-50">
+                      <TableHead className="font-semibold text-slate-700">Request ID</TableHead>
+                      <TableHead className="font-semibold text-slate-700">Document / Title</TableHead>
+                      <TableHead className="font-semibold text-slate-700">Department</TableHead>
+                      <TableHead className="font-semibold text-slate-700">Status</TableHead>
+                      <TableHead className="font-semibold text-slate-700">Last Updated</TableHead>
+                      <TableHead className="font-semibold text-slate-700 text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredReports.map((report) => (
+                      <TableRow key={report.id} className="hover:bg-slate-50 transition-colors">
+                        <TableCell>
+                          <span className="font-mono text-slate-800">{report.requestId || report.id}</span>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            <div className="w-16 h-12 rounded-lg border border-slate-200 overflow-hidden shadow-sm flex-shrink-0">
+                              <ImageWithFallback
+                                src={getThumbnail(report.templateId || report.id)}
+                                alt={report.fileName}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                            <p className="font-medium text-slate-800">{report.fileName || report.requestId || 'Document'}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Building2 className="h-4 w-4 text-slate-500" />
+                            <span className="text-slate-700">{getDepartmentLabel(report.department) || '—'}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge className={getStatusColor((report.status as any) || 'pending')}>
+                            <FileCheck className="h-3 w-3 mr-1" />
+                            {getStatusLabel((report.status as any) || 'pending')}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Calendar className="h-4 w-4 text-slate-500" />
+                            <span className="text-slate-700">
+                              {typeof report.lastModified === 'string'
+                                ? report.lastModified.split('T')[0]
+                                : report.uploadDate || '—'}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              onClick={() => handleOpenOrRaise(report.id)}
+                              size="sm"
+                              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 hover:from-blue-600 hover:via-indigo-600 hover:to-purple-600 text-white rounded-lg shadow-md"
+                              title="Raise Request"
+                            >
+                              <Eye className="h-4 w-4" />
+                              <span className="font-medium">Raise Request</span>
+                            </Button>
+                            {onDownloadTemplate && (
+                              <Button
+                                onClick={() => handleDownload(report)}
+                                size="sm"
+                                className="flex items-center gap-2 px-3 py-2 bg-white border-2 border-slate-300 text-slate-700 hover:bg-slate-100 rounded-lg shadow-sm"
+                                title="Download"
+                              >
+                                <Download className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -200,9 +324,8 @@ export const RaiseRequest: React.FC<RaiseRequestProps> = ({
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center justify-end gap-2">
-                            {/* Raise Request Button */}
                             <Button
-                              onClick={() => handleRaiseRequest(template.id)}
+                              onClick={() => handleOpenOrRaise(template.id)}
                               size="sm"
                               className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 hover:from-blue-600 hover:via-indigo-600 hover:to-purple-600 text-white rounded-lg shadow-md hover:shadow-lg transition-all"
                               title="Raise Request"
@@ -210,8 +333,6 @@ export const RaiseRequest: React.FC<RaiseRequestProps> = ({
                               <Send className="h-4 w-4" />
                               <span className="font-medium">Raise Request</span>
                             </Button>
-                            
-                            {/* Download Button */}
                             <Button
                               onClick={() => handleDownload(template)}
                               size="sm"
@@ -220,6 +341,17 @@ export const RaiseRequest: React.FC<RaiseRequestProps> = ({
                             >
                               <Download className="h-4 w-4" />
                             </Button>
+                            {isAdmin && onDeleteTemplate && (
+                              <Button
+                                onClick={() => handleDelete(template)}
+                                size="sm"
+                                variant="outline"
+                                className="flex items-center gap-2 px-3 py-2 border-2 border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 rounded-lg shadow-sm hover:shadow-md transition-all"
+                                title="Delete Document"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
