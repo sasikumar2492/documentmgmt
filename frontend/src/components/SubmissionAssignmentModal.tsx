@@ -86,7 +86,7 @@ export const SubmissionAssignmentModal: React.FC<SubmissionAssignmentModalProps>
     setReviewersError(null);
     setSelectedReviewers([]);
     setPriority(initialPriority || 'medium');
-    setComments(initialComments ?? '');
+    setComments('');
     getUsers()
       .then((list) => {
         const options = list.map((u) => ({
@@ -112,11 +112,10 @@ export const SubmissionAssignmentModal: React.FC<SubmissionAssignmentModalProps>
       .finally(() => setReviewersLoading(false));
   }, [isOpen]); // Intentionally not depending on initialReviewerIds so we don't re-fetch; initial values applied when open
 
-  // When modal opens with initial data (e.g. from document library), set priority/comments and reviewers once
+  // When modal opens with initial data (e.g. from document library), set priority and reviewers once (remarks stay empty)
   useEffect(() => {
     if (!isOpen) return;
     if (initialPriority) setPriority(initialPriority);
-    if (initialComments !== undefined) setComments(initialComments);
     if (initialReviewerIds?.length && !appliedInitialRef.current && reviewers.length > 0) {
       const validIds = initialReviewerIds.filter((id) =>
         reviewers.some((r) => r.id === id)
@@ -126,7 +125,7 @@ export const SubmissionAssignmentModal: React.FC<SubmissionAssignmentModalProps>
         appliedInitialRef.current = true;
       }
     }
-  }, [isOpen, initialReviewerIds, initialPriority, initialComments, reviewers]);
+  }, [isOpen, initialReviewerIds, initialPriority, reviewers]);
 
   const isReviewerOnly = userRole === 'manager_reviewer' ||
                          (userRole || '').toLowerCase().includes('reviewer');
@@ -168,12 +167,18 @@ export const SubmissionAssignmentModal: React.FC<SubmissionAssignmentModalProps>
       return;
     }
     onConfirm({ reviewerIds: selectedReviewers, priority, comments, action });
+    setComments('');
+  };
+
+  const handleClose = () => {
+    setComments('');
+    onClose();
   };
 
   const getReviewerDetails = (id: string) => reviewers.find((r) => r.id === id);
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={isOpen} onOpenChange={(open) => { if (!open) handleClose(); }}>
       <DialogContent className="sm:max-w-[550px] p-0 overflow-hidden border-none shadow-2xl">
         <div className="bg-gradient-to-r from-blue-600 to-indigo-700 p-6">
           <DialogHeader>
@@ -338,7 +343,7 @@ export const SubmissionAssignmentModal: React.FC<SubmissionAssignmentModalProps>
         </div>
 
         <DialogFooter className="p-6 bg-slate-50 border-t border-slate-100 flex flex-wrap gap-3 sm:justify-end">
-          <Button variant="outline" onClick={onClose} className="border-slate-200 text-slate-600">
+          <Button variant="outline" onClick={handleClose} className="border-slate-200 text-slate-600">
             Cancel
           </Button>
           {showReviewActionButtons ? (
