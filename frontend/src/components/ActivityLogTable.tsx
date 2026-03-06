@@ -58,7 +58,7 @@ interface RequestActivityLog {
   fileName: string;
   documentType: string;
   department: string;
-  status: 'pending' | 'submitted' | 'in-review' | 'in-progress' | 'approved' | 'rejected' | 'returned';
+  status: 'pending' | 'submitted' | 'in-review' | 'in-progress' | 'approved' | 'rejected' | 'returned' | 'reviewed';
   submittedDate: string;
   lastUpdated: string;
   totalActivities: number;
@@ -326,7 +326,8 @@ export function ActivityLogTable({ onViewDetail, reports = [], auditLogs = [], o
       case 'initial-review':
       case 'review-process':
       case 'final-review':
-        return 'in-review';
+        return 'reviewed';
+      case 'submitted':
       case 'pending':
       default:
         return 'pending';
@@ -338,21 +339,20 @@ export function ActivityLogTable({ onViewDetail, reports = [], auditLogs = [], o
     auditLogs && auditLogs.length > 0
       ? buildActivitiesFromAuditLogs(auditLogs)
       : reports.map((report) => {
-          const activities = generateActivitiesFromReport(report);
-          
-          return {
-            requestId: report.requestId || `REQ-${report.id}`,
-            fileName: report.fileName || 'Unknown Document',
-            documentType: report.documentType || 'Approval Request',
-            department: report.assignedTo || report.department || 'General',
-            status: mapReportStatusToActivityStatus(report.status),
-            submittedDate: report.uploadDate || new Date().toLocaleDateString(),
-            lastUpdated:
-              report.lastModified || report.uploadDate || new Date().toLocaleString(),
-            totalActivities: activities.length,
-            activities: activities,
-          };
-        });
+    const activities = generateActivitiesFromReport(report);
+    
+    return {
+      requestId: report.requestId || `REQ-${report.id}`,
+      fileName: report.fileName || 'Unknown Document',
+      documentType: report.documentType || 'Approval Request',
+      department: report.assignedTo || report.department || 'General',
+      status: mapReportStatusToActivityStatus(report.status),
+      submittedDate: report.uploadDate || new Date().toLocaleDateString(),
+      lastUpdated: report.lastModified || report.uploadDate || new Date().toLocaleString(),
+      totalActivities: activities.length,
+      activities: activities,
+    };
+  });
 
   // Extract unique values for filters
   const uniqueDocTypes = Array.from(new Set(allActivityLogs.map(log => log.documentType)));
@@ -447,12 +447,9 @@ export function ActivityLogTable({ onViewDetail, reports = [], auditLogs = [], o
                 <SelectContent className="bg-white rounded-xl shadow-xl border-slate-100">
                   <SelectItem value="all">All Status</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="submitted">Submitted</SelectItem>
                   <SelectItem value="in-review">In-Review</SelectItem>
-              <SelectItem value="in-progress">In-Progress</SelectItem>
                   <SelectItem value="approved">Approved</SelectItem>
                   <SelectItem value="rejected">Rejected</SelectItem>
-              <SelectItem value="returned">Returned</SelectItem>
                 </SelectContent>
               </Select>
             </div>

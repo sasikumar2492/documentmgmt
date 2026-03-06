@@ -38,7 +38,7 @@ interface RequestActivityLog {
   fileName: string;
   documentType: string;
   department: string;
-  status: 'pending' | 'submitted' | 'in-review' | 'approved' | 'rejected' | 'returned' | 'in-progress';
+  status: 'pending' | 'submitted' | 'in-review' | 'approved' | 'rejected' | 'returned' | 'in-progress' | 'reviewed';
   submittedDate: string;
   lastUpdated: string;
   totalActivities: number;
@@ -373,9 +373,10 @@ export function ActivityLogDetail({ requestId, onBack, reports = [], departments
   const mapReportStatusToActivityStatus = (reportStatus?: string): RequestActivityLog['status'] => {
     if (!reportStatus) return 'pending';
     const normalized = reportStatus.toLowerCase().replace(/_/g, '-');
-    
+
     switch (normalized) {
       case 'approved':
+      case 'completed':
         return 'approved';
       case 'rejected':
         return 'rejected';
@@ -387,7 +388,8 @@ export function ActivityLogDetail({ requestId, onBack, reports = [], departments
       case 'review-process':
       case 'initial-review':
       case 'final-review':
-        return 'in-review';
+      case 'reviewed':
+        return 'reviewed';
       case 'submitted':
         return 'submitted';
       case 'pending':
@@ -469,6 +471,7 @@ export function ActivityLogDetail({ requestId, onBack, reports = [], departments
       submitted: 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md',
       'in-review': 'bg-gradient-to-r from-blue-500 to-cyan-600 text-white shadow-md',
       'in-progress': 'bg-gradient-to-r from-blue-500 to-cyan-600 text-white shadow-md',
+      reviewed: 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-md',
       approved: 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-md',
       rejected: 'bg-gradient-to-r from-red-500 to-rose-600 text-white shadow-md',
       returned: 'bg-gradient-to-r from-purple-500 to-violet-600 text-white shadow-md',
@@ -478,6 +481,7 @@ export function ActivityLogDetail({ requestId, onBack, reports = [], departments
       submitted: 'Submitted',
       'in-review': 'In Review',
       'in-progress': 'In Progress',
+      reviewed: 'Reviewed',
       approved: 'Approved',
       rejected: 'Rejected',
       returned: 'Returned For Revision',

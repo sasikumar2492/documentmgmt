@@ -1,7 +1,7 @@
 import { FormData, ReportData } from '../types';
 
 /** Application / document version string */
-export const APP_VERSION = '0.0.1';
+export const APP_VERSION = '0.0.0';
 
 export const defaultFormData: FormData = {
   // Page 1 - Request Information
