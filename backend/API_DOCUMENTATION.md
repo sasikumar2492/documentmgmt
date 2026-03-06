@@ -557,8 +557,9 @@ When both `page` and `pageSize` are provided, the response is `{ data, total, pa
 
 **Document Library flow (GET /api/requests?view=library):**
 
+- **Visibility (non-admin):** A request appears in the list if the user **created** it, is **assigned** to it, or is in **review_sequence** (so the reviewer continues to see it after handoff to the approver).
 - Preparator creates a request and sets one reviewer and one approver in `review_sequence` (e.g. `[reviewerUuid, approverUuid]`) and sets `assigned_to` to the reviewer. Document Library shows the request with status and **Assigned to** = reviewer.
-- **Reviewer** actions: set `status` to `reviewed` (pass to approver), `needs_revision`, or `rejected`. When the reviewer sets status to **reviewed**, the API automatically advances `assigned_to` to the next user in `review_sequence` (the approver). Document Library then shows **Assigned to** = approver and status = reviewed.
+- **Reviewer** actions: set `status` to `reviewed` (pass to approver), `needs_revision`, or `rejected`. When the reviewer sets status to **reviewed**, the API automatically advances `assigned_to` to the next user in `review_sequence` (the approver). The request remains visible to the reviewer because they are in `review_sequence`. Document Library shows **Assigned to** = approver and status = reviewed.
 - **Approver** actions: set `status` to `approved`, `needs_revision`, or `rejected`. Document Library reflects the final status accordingly.
 
 **Success (200):** Array of request DTOs, or when paginated: `{ "data": [...], "total": 42, "page": 1, "pageSize": 10 }`. Each item:

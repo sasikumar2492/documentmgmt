@@ -274,7 +274,7 @@
                 { "key": "pageSize", "value": "10", "disabled": true, "description": "Max 500" }
               ]
             },
-            "description": "List requests. view=library: Document Library (user created or assigned, status excludes draft/pending). Optional: department_id, status, q, assigned_to, from_date, to_date, sortBy, sortOrder. Pagination: page + pageSize → { data, total, page, pageSize }."
+            "description": "List requests. view=library: Document Library (user created, assigned, or in review_sequence—reviewer still sees after handoff to approver; status excludes draft/pending). Optional: department_id, status, q, assigned_to, from_date, to_date, sortBy, sortOrder. Pagination: page + pageSize → { data, total, page, pageSize }."
           }
         },
         {
