@@ -182,7 +182,10 @@ async function getActivity(req, res) {
       entity_id: req.params.id,
       limit: req.query.limit || 100,
     });
-    res.json(logs);
+    res.json({
+      requestStatus: request.status,
+      activity: logs,
+    });
   } catch (err) {
     console.error('Request activity error:', err);
     res.status(500).json({ error: 'Failed to get request activity' });

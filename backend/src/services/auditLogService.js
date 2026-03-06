@@ -124,6 +124,28 @@ function normalizeAction(row) {
   return row.action;
 }
 
+/** Derive display status for activity timeline (dynamic per action). */
+function statusFromAction(normalizedAction) {
+  switch (normalizedAction) {
+    case 'request_approved':
+      return 'approved';
+    case 'request_rejected':
+      return 'rejected';
+    case 'revisions_requested':
+      return 'needs_revision';
+    case 'review_started':
+    case 'reviewer_assigned':
+      return 'in_progress';
+    case 'document_uploaded':
+    case 'request_created':
+    case 'page_changed':
+    case 'request_deleted':
+    case 'status_changed':
+    default:
+      return 'completed';
+  }
+}
+
 function mapRow(r) {
   let entityName = r.entity_id;
   if (r.entity_type === 'request' && r.request_display_id) entityName = r.request_display_id;
@@ -147,6 +169,7 @@ function mapRow(r) {
     ipAddress: r.ip_address || undefined,
     requestId: r.entity_type === 'request' ? r.request_display_id : undefined,
     title: titleFromAction(normalizedAction),
+    status: statusFromAction(normalizedAction),
   };
 }
 

@@ -617,12 +617,36 @@ Get audit log entries for a single request (activity timeline).
 |-----------|--------|----------|--------------------|
 | limit     | number | No       | Max entries (default from server) |
 
-**Success (200):** Array of audit log entries (same shape as GET /api/audit-logs), filtered by `entity_type=request` and `entity_id=:id`.
+**Success (200):** Object with current request status and activity list (for dynamic status on View Audit Log page).
+
+| Field          | Type   | Description |
+|----------------|--------|-------------|
+| requestStatus  | string | **Current** request status (e.g. draft, pending, submitted, approved, rejected, needs_revision). Use for page-level "Current status" in UI. |
+| activity       | array  | Audit log entries for this request (see below). |
+
+Each **activity** entry:
+
+| Field       | Type   | Description |
+|------------|--------|-------------|
+| id         | string | Log entry ID |
+| timestamp  | string | ISO 8601 created_at |
+| action     | string | e.g. document_uploaded, request_created, reviewer_assigned, review_started, revisions_requested, request_approved, request_rejected, page_changed |
+| entityType | string | request |
+| entityId   | string | Request UUID |
+| entityName | string | Request display id or name |
+| user       | string | User full name or username |
+| userRole   | string | User role (for UI badge) |
+| department | string | User department name |
+| details    | string | Human-readable description for UI |
+| requestId  | string | Request display id (e.g. REQ-2026-10001) |
+| title      | string | Title derived from action (e.g. "Document Uploaded") |
+| status     | string | **Dynamic** per action: `completed`, `in_progress`, `approved`, `rejected`, `needs_revision` (for timeline badges) |
 
 **Errors:**
 
 - `401` – Missing/invalid token
-- `500` – `{ "error": "Failed to get activity" }`
+- `404` – Request not found
+- `500` – `{ "error": "Failed to get request activity" }`
 
 ---
 
