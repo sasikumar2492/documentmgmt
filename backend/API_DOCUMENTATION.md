@@ -269,9 +269,7 @@ Get dashboard summary, including counts for AI Conversion-style cards (Total Doc
     "approved": 8
   },
   "templateDraftCount": 2,
-  "documentTotals": {
-    "total": 25
-  }
+  "documentTotals": 25
 }
 ```
 

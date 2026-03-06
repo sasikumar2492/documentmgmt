@@ -33,11 +33,8 @@ function mapTemplateRow(r) {
   };
 }
 
-/**
- * Get request counts grouped by status. Optional filters: department_id, assigned_to (user id), days (number).
- */
 async function getRequestCountsByStatus(filters = {}) {
-  const { department_id, assigned_to, days } = filters;
+  const { department_id, assigned_to, created_by, days } = filters;
   let query = `
     SELECT status, COUNT(*)::int AS count
     FROM requests
@@ -52,6 +49,10 @@ async function getRequestCountsByStatus(filters = {}) {
   if (assigned_to) {
     query += ` AND assigned_to = $${n++}`;
     params.push(assigned_to);
+  }
+  if (created_by) {
+    query += ` AND created_by = $${n++}`;
+    params.push(created_by);
   }
   if (days != null && days > 0) {
     query += ` AND created_at >= NOW() - INTERVAL '1 day' * $${n++}`;
@@ -75,7 +76,7 @@ async function getRequestCountsByStatus(filters = {}) {
  * Get recent requests. limit default 10, days optional (e.g. 7, 30, 90).
  */
 async function getRecentRequests(limit = 10, filters = {}) {
-  const { department_id, assigned_to, days } = filters;
+  const { department_id, assigned_to, created_by, days } = filters;
   const safeLimit = Math.min(Math.max(1, parseInt(limit, 10) || 10), 100);
   let query = `
     SELECT r.id, r.template_id, r.request_id, r.title, r.department_id, r.status,
@@ -98,6 +99,10 @@ async function getRecentRequests(limit = 10, filters = {}) {
   if (assigned_to) {
     query += ` AND r.assigned_to = $${n++}`;
     params.push(assigned_to);
+  }
+  if (created_by) {
+    query += ` AND r.created_by = $${n++}`;
+    params.push(created_by);
   }
   if (days != null && days > 0) {
     query += ` AND r.created_at >= NOW() - INTERVAL '1 day' * $${n++}`;
@@ -180,7 +185,7 @@ async function getTemplateCountsByStatus(filters = {}) {
 }
 
 async function getDocumentTotals(filters = {}) {
-  const { department_id, days } = filters;
+  const { department_id, assigned_to, created_by, days } = filters;
   let query = `
     SELECT COUNT(*)::int AS total
     FROM documents d
@@ -192,6 +197,14 @@ async function getDocumentTotals(filters = {}) {
   if (department_id) {
     query += ` AND r.department_id = $${n++}`;
     params.push(department_id);
+  }
+  if (assigned_to) {
+    query += ` AND r.assigned_to = $${n++}`;
+    params.push(assigned_to);
+  }
+  if (created_by) {
+    query += ` AND r.created_by = $${n++}`;
+    params.push(created_by);
   }
   if (days != null && days > 0) {
     query += ` AND d.created_at >= NOW() - INTERVAL '1 day' * $${n++}`;
@@ -216,6 +229,7 @@ async function getSummary(filters = {}) {
     days,
     department_id,
     assigned_to,
+    created_by,
   } = filters;
 
   const [
@@ -225,11 +239,11 @@ async function getSummary(filters = {}) {
     templateCountsByStatus,
     documentTotals,
   ] = await Promise.all([
-    getRequestCountsByStatus({ department_id, assigned_to, days }),
-    getRecentRequests(limit, { department_id, assigned_to, days }),
+    getRequestCountsByStatus({ department_id, assigned_to, created_by, days }),
+    getRecentRequests(limit, { department_id, assigned_to, created_by, days }),
     getRecentTemplates(limit, { department_id, days }),
     getTemplateCountsByStatus({ department_id, days }),
-    getDocumentTotals({ department_id, days }),
+    getDocumentTotals({ department_id, assigned_to, created_by, days }),
   ]);
 
   return {
@@ -238,7 +252,7 @@ async function getSummary(filters = {}) {
     recentTemplates,
     templateCountsByStatus,
     templateDraftCount: templateCountsByStatus.draft || 0,
-    documentTotals,
+    documentTotals: documentTotals.total ?? 0,
   };
 }
 
