@@ -7,7 +7,7 @@
 
 ## Completed APIs Overview
 
-All endpoints currently implemented and available for the frontend and Postman.
+All endpoints currently implemented and available for the frontend and Postman (as of latest update).
 
 | # | Method | Endpoint | Auth | Description |
 |---|--------|----------|------|-------------|
@@ -17,7 +17,7 @@ All endpoints currently implemented and available for the frontend and Postman.
 | 4 | POST | /api/auth/refresh | Yes | Re-issue JWT |
 | 5 | POST | /api/auth/forgot-password | No | Request password reset |
 | 6 | POST | /api/auth/reset-password | No | Reset password with token |
-| 7 | GET | /api/dashboard/summary | Yes | Dashboard: requestCountsByStatus, recentRequests, recentTemplates |
+| 7 | GET | /api/dashboard/summary | Yes | Dashboard: requestCountsByStatus, recentRequests, recentTemplates, documentTotals |
 | 8 | GET | /api/departments | Yes | List departments |
 | 9 | GET | /api/users | Yes | List users |
 | 10 | GET | /api/templates | Yes | List templates |
@@ -33,30 +33,27 @@ All endpoints currently implemented and available for the frontend and Postman.
 | 20 | POST | /api/requests/:id/workflow/actions | Yes | Workflow action (init, approve, reject, request_revision) |
 | 21 | POST | /api/requests | Yes | Create request |
 | 22 | PATCH | /api/requests/:id | Yes | Update request |
-| 23 | GET | /api/requests/:id/form-data | Yes | Get form data (Save Draft / load) |
-| 24 | PUT | /api/requests/:id/form-data | Yes | Save form data (Save Draft) |
-| 25 | GET | /api/documents | Yes | List documents |
-| 26 | GET | /api/documents/:id | Yes | Get document |
-| 27 | GET | /api/documents/:id/file | Yes | Document file stream |
-| 28 | POST | /api/documents | Yes | Upload document (multipart) |
-| 29 | PATCH | /api/documents/:id | Yes | Update document status |
-| 30 | GET | /api/audit-logs | Yes | List audit logs |
-| 31 | GET | /api/workflows | Yes | List workflows |
-| 32 | GET | /api/workflows/:id | Yes | Get workflow |
-| 33 | GET | /api/workflows/:id/steps | Yes | List workflow steps |
-| 34 | PUT | /api/workflows/:id/steps | Yes | Replace workflow steps |
-| 35 | POST | /api/workflows | Yes | Create workflow |
-| 36 | PATCH | /api/workflows/:id | Yes | Update workflow |
-| 37 | GET | /api/workflow-rules | Yes | List workflow rules |
-| 38 | GET | /api/workflow-rules/:id | Yes | Get workflow rule |
-| 39 | POST | /api/workflow-rules | Yes | Create workflow rule |
-| 40 | PATCH | /api/workflow-rules/:id | Yes | Update workflow rule |
-| 41 | DELETE | /api/requests/:id | Yes | Delete request (and linked documents) |
-| 42 | GET | /api/requests/:id/page-remarks | Yes | List page-level remarks for a request |
-| 43 | PUT | /api/requests/:id/page-remarks/:page | Yes | Save/upsert page remark |
-| 41 | DELETE | /api/requests/:id | Yes | Delete request (and linked documents) |
-| 42 | GET | /api/requests/:id/page-remarks | Yes | List page-level remarks for a request |
-| 43 | PUT | /api/requests/:id/page-remarks/:page | Yes | Save/upsert page remark |
+| 23 | DELETE | /api/requests/:id | Yes | Delete request (and linked documents) |
+| 24 | GET | /api/requests/:id/page-remarks | Yes | List page-level remarks for a request |
+| 25 | PUT | /api/requests/:id/page-remarks/:page | Yes | Save/upsert page remark |
+| 26 | GET | /api/requests/:id/form-data | Yes | Get form data (Save Draft / load) |
+| 27 | PUT | /api/requests/:id/form-data | Yes | Save form data (Save Draft) |
+| 28 | GET | /api/documents | Yes | List documents |
+| 29 | GET | /api/documents/:id | Yes | Get document |
+| 30 | GET | /api/documents/:id/file | Yes | Document file stream |
+| 31 | POST | /api/documents | Yes | Upload document (multipart) |
+| 32 | PATCH | /api/documents/:id | Yes | Update document status |
+| 33 | GET | /api/audit-logs | Yes | List audit logs |
+| 34 | GET | /api/workflows | Yes | List workflows |
+| 35 | GET | /api/workflows/:id | Yes | Get workflow |
+| 36 | GET | /api/workflows/:id/steps | Yes | List workflow steps |
+| 37 | PUT | /api/workflows/:id/steps | Yes | Replace workflow steps |
+| 38 | POST | /api/workflows | Yes | Create workflow |
+| 39 | PATCH | /api/workflows/:id | Yes | Update workflow |
+| 40 | GET | /api/workflow-rules | Yes | List workflow rules |
+| 41 | GET | /api/workflow-rules/:id | Yes | Get workflow rule |
+| 42 | POST | /api/workflow-rules | Yes | Create workflow rule |
+| 43 | PATCH | /api/workflow-rules/:id | Yes | Update workflow rule |
 
 ---
 
@@ -882,11 +879,15 @@ Get form data for a request (dynamic form payload).
 
 **Success (200):**
 
+Response includes `departmentName` and `preparatorName` (from the request’s department and created_by user) for use in the UI sidebar (e.g. DOCUMENT COMPLIANCE panel).
+
 ```json
 {
   "data": {},
   "formSectionsSnapshot": null,
-  "updatedAt": null
+  "updatedAt": null,
+  "departmentName": "Engineering",
+  "preparatorName": "John Smith"
 }
 ```
 
@@ -896,9 +897,16 @@ When data exists:
 {
   "data": { "field_1": "value1", "field_2": "value2" },
   "formSectionsSnapshot": [ { "title": "Section 1", "fields": [] } ],
-  "updatedAt": "2026-02-26T10:00:00.000Z"
+  "updatedAt": "2026-02-26T10:00:00.000Z",
+  "departmentName": "Engineering",
+  "preparatorName": "John Smith"
 }
 ```
+
+| Field              | Type   | Description |
+|--------------------|--------|-------------|
+| departmentName     | string \| null | Name of the request’s department (SITE FACILITY / department). |
+| preparatorName     | string \| null | Full name of the user who created the request (PREPARED BY). |
 
 **Errors:**
 
@@ -947,7 +955,7 @@ Each **pageEvents** entry (when provided) has:
 }
 ```
 
-**Success (200):** Same shape as GET form-data (updated `data`, `formSectionsSnapshot`, `updatedAt`). Any `pageEvents` items are also written into `audit_logs` with `action='page_changed'` so they appear in the Activity Log.
+**Success (200):** Same shape as GET form-data (updated `data`, `formSectionsSnapshot`, `updatedAt`, `departmentName`, `preparatorName`). Any `pageEvents` items are also written into `audit_logs` with `action='page_changed'` so they appear in the Activity Log.
 
 **Errors:**
 
@@ -1281,6 +1289,8 @@ Some endpoints add a `detail` field (e.g. PATCH request when DB schema is outdat
 
 ## Quick Reference – Endpoints
 
+All completed APIs. Base URL: `/api`. Auth = Bearer token (except login, health, forgot-password, reset-password).
+
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
 | GET | /api/health | No | Health check |
@@ -1289,7 +1299,7 @@ Some endpoints add a `detail` field (e.g. PATCH request when DB schema is outdat
 | POST | /api/auth/refresh | Yes | Re-issue JWT |
 | POST | /api/auth/forgot-password | No | Request password reset |
 | POST | /api/auth/reset-password | No | Reset password with token |
-| GET | /api/dashboard/summary | Yes | Dashboard summary (counts, recent requests/templates) |
+| GET | /api/dashboard/summary | Yes | Dashboard summary (counts, recent requests/templates, documentTotals) |
 | GET | /api/departments | Yes | List departments |
 | GET | /api/users | Yes | List users |
 | GET | /api/templates | Yes | List templates |
@@ -1298,13 +1308,16 @@ Some endpoints add a `detail` field (e.g. PATCH request when DB schema is outdat
 | GET | /api/templates/:id/download | Yes | Presigned S3 download URL (or 404) |
 | POST | /api/templates | Yes | Upload template (multipart) |
 | PATCH | /api/templates/:id | Yes | Update template |
-| GET | /api/requests | Yes | List requests |
+| GET | /api/requests | Yes | List requests (filters, search, pagination, sort) |
 | GET | /api/requests/:id | Yes | Get request |
 | GET | /api/requests/:id/activity | Yes | Request activity/audit entries |
 | GET | /api/requests/:id/workflow | Yes | Request workflow instance and steps |
 | POST | /api/requests/:id/workflow/actions | Yes | Workflow action (init, approve, reject, etc.) |
 | POST | /api/requests | Yes | Create request |
 | PATCH | /api/requests/:id | Yes | Update request |
+| DELETE | /api/requests/:id | Yes | Delete request (and linked documents) |
+| GET | /api/requests/:id/page-remarks | Yes | List page-level remarks |
+| PUT | /api/requests/:id/page-remarks/:page | Yes | Save/upsert page remark |
 | GET | /api/requests/:id/form-data | Yes | Get form data |
 | PUT | /api/requests/:id/form-data | Yes | Save form data |
 | GET | /api/documents | Yes | List documents |

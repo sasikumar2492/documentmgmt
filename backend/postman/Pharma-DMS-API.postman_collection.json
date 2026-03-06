@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Pharma DMS API",
-    "description": "REST API for Pharma Document Management System. Covers all completed APIs: Health, Auth (login, me, refresh, forgot/reset password), Dashboard summary, Departments, Users, Templates (list, get, file, download, upload, update), Requests (list with filters/pagination, get, activity, workflow, page-remarks, create, update, delete), Form Data, Documents, Audit Logs, Workflows, Workflow Rules. Base URL: {{baseUrl}}. After login, set token in collection variable for Bearer auth.",
+    "description": "REST API for Pharma Document Management System – all completed APIs as of latest update. Includes: Health; Auth (login, me, refresh, forgot/reset password); Dashboard summary; Departments; Users; Templates (list, get, file, download, upload, update); Requests (list with filters/search/pagination/sort, get, activity, workflow, workflow actions, page-remarks, form-data, create, update, delete); Documents (list, get, file, upload, update); Audit Logs; Workflows (list, get, steps, create, update); Workflow Rules (list, get, create, update). Base URL: {{baseUrl}}. After login, token is saved to collection variable for Bearer auth.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -392,7 +392,7 @@
           "request": {
             "method": "GET",
             "url": "{{baseUrl}}/requests/{{requestId}}/form-data",
-            "description": "Get form data for a request. :id is request UUID."
+            "description": "Get form data for a request. :id is request UUID. Response includes data, formSectionsSnapshot, updatedAt, departmentName (request's department), and preparatorName (created_by user full name) for the UI sidebar (e.g. DOCUMENT COMPLIANCE)."
           }
         },
         {

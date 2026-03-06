@@ -14,7 +14,7 @@ async function getFormData(req, res) {
 async function putFormData(req, res) {
   try {
     const { data, formSectionsSnapshot, pageEvents } = req.body || {};
-    const result = await formDataService.upsert(req.params.id, { data, formSectionsSnapshot });
+    await formDataService.upsert(req.params.id, { data, formSectionsSnapshot });
     if (Array.isArray(pageEvents)) {
       for (const ev of pageEvents) {
         const page = parseInt(ev.pageNumber, 10);
@@ -32,6 +32,7 @@ async function putFormData(req, res) {
         });
       }
     }
+    const result = await formDataService.getByRequestId(req.params.id);
     res.json(result);
   } catch (err) {
     console.error('Form data put error:', err);
