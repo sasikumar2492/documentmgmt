@@ -98,11 +98,23 @@ async function create(req, res) {
 async function update(req, res) {
   try {
     const previous = await requestService.getById(req.params.id);
-    const result = await requestService.update(req.params.id, req.body || {});
+    const body = { ...(req.body || {}) };
+    // When reviewer sets status to "reviewed", advance assigned_to to next in review_sequence (approver).
+    if (previous && body.status === 'reviewed') {
+      const seq = previous.reviewSequence;
+      if (Array.isArray(seq) && seq.length > 0 && previous.assignedTo) {
+        const currentId = previous.assignedTo;
+        const idx = seq.findIndex((id) => String(id) === String(currentId));
+        if (idx >= 0 && idx < seq.length - 1) {
+          body.assigned_to = seq[idx + 1];
+        }
+      }
+    }
+    const result = await requestService.update(req.params.id, body);
     if (!result) {
       return res.status(400).json({ error: 'No fields to update' });
     }
-    const newAssigneeRaw = req.body.assigned_to ?? req.body.assignedTo;
+    const newAssigneeRaw = body.assigned_to ?? body.assignedTo;
     if (newAssigneeRaw && previous && previous.assignedTo !== newAssigneeRaw) {
       await auditLogService.insert({
         entity_type: 'request',
@@ -116,13 +128,13 @@ async function update(req, res) {
         },
       });
     }
-    if (req.body && req.body.status !== undefined && previous && previous.status !== req.body.status) {
+    if (body.status !== undefined && previous && previous.status !== body.status) {
       await auditLogService.insert({
         entity_type: 'request',
         entity_id: req.params.id,
         action: 'status_changed',
         user_id: req.user.id,
-        details: { from: previous.status, to: req.body.status, requestId: result.requestId },
+        details: { from: previous.status, to: body.status, requestId: result.requestId },
       });
       const roleLower = (req.user.role || '').toLowerCase();
       const isAdmin = roleLower === 'admin';
@@ -130,7 +142,7 @@ async function update(req, res) {
         roleLower === 'approver' ||
         roleLower === 'manager_approver' ||
         roleLower.includes('approver');
-      const newStatus = req.body.status;
+      const newStatus = body.status;
       if (
         emailService.isEmailConfigured() &&
         (isAdmin || (isApprover && newStatus === 'approved'))

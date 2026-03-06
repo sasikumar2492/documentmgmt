@@ -95,10 +95,10 @@ async function list(filters = {}) {
     if (!status) {
       conditions.push(`r.status NOT IN ('draft','pending')`);
     }
-    // Non-admins see only requests they created or are assigned to.
+    // Non-admins see requests they created, are assigned to, or are in review_sequence (e.g. reviewer still sees after handoff to approver).
     if (normalizedRole !== 'admin' && userId) {
-      conditions.push(`(r.created_by = $${idx++} OR r.assigned_to = $${idx++})`);
-      params.push(userId, userId);
+      conditions.push(`(r.created_by = $${idx++} OR r.assigned_to = $${idx++} OR (r.review_sequence IS NOT NULL AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(r.review_sequence) AS e WHERE e = $${idx++}::text)))`);
+      params.push(userId, userId, userId);
     }
   }
   const whereClause = conditions.length ? ` AND ${conditions.join(' AND ')}` : '';
