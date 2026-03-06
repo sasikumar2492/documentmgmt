@@ -95,6 +95,11 @@ async function list(filters = {}) {
     if (!status) {
       conditions.push(`r.status NOT IN ('draft','pending')`);
     }
+    // Non-admins see only requests they created or are assigned to.
+    if (normalizedRole !== 'admin' && userId) {
+      conditions.push(`(r.created_by = $${idx++} OR r.assigned_to = $${idx++})`);
+      params.push(userId, userId);
+    }
   }
   const whereClause = conditions.length ? ` AND ${conditions.join(' AND ')}` : '';
 

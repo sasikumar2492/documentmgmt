@@ -392,7 +392,7 @@
           "request": {
             "method": "GET",
             "url": "{{baseUrl}}/requests/{{requestId}}/form-data",
-            "description": "Get form data for a request. :id is request UUID. Response includes data, formSectionsSnapshot, updatedAt, departmentName (request's department), and preparatorName (created_by user full name) for the UI sidebar (e.g. DOCUMENT COMPLIANCE)."
+            "description": "Get form data for a request. Path :id = request UUID.\n\nResponse (200):\n- data (object): key-value form data; {} when none.\n- formSectionsSnapshot (array | null): section snapshot, e.g. [{ id, title, fields }].\n- updatedAt (string | null): ISO 8601 last update time.\n- departmentName (string | null): request's department name (UI: SITE FACILITY).\n- preparatorName (string | null): full name of user who created the request (UI: PREPARED BY).\n\nErrors: 401 (invalid token), 500 (Failed to get form data)."
           }
         },
         {
@@ -405,7 +405,7 @@
               "raw": "{\n  \"data\": {},\n  \"formSectionsSnapshot\": null\n}"
             },
             "url": "{{baseUrl}}/requests/{{requestId}}/form-data",
-            "description": "Create or update form data. Body: data (object), formSectionsSnapshot (optional)."
+            "description": "Create or update form data. Path :id = request UUID. Body: data (object), formSectionsSnapshot (optional), pageEvents (optional array of { pageNumber, eventType, summary }) for audit log.\n\nResponse (200): Same shape as GET form-data: data, formSectionsSnapshot, updatedAt, departmentName, preparatorName.\n\nErrors: 401 (invalid token), 500 (Failed to save form data)."
           }
         }
       ]

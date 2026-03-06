@@ -36,8 +36,8 @@ All endpoints currently implemented and available for the frontend and Postman (
 | 23 | DELETE | /api/requests/:id | Yes | Delete request (and linked documents) |
 | 24 | GET | /api/requests/:id/page-remarks | Yes | List page-level remarks for a request |
 | 25 | PUT | /api/requests/:id/page-remarks/:page | Yes | Save/upsert page remark |
-| 26 | GET | /api/requests/:id/form-data | Yes | Get form data (Save Draft / load) |
-| 27 | PUT | /api/requests/:id/form-data | Yes | Save form data (Save Draft) |
+| 26 | GET | /api/requests/:id/form-data | Yes | Get form data (data, formSectionsSnapshot, updatedAt, departmentName, preparatorName) |
+| 27 | PUT | /api/requests/:id/form-data | Yes | Save form data; response same shape as GET |
 | 28 | GET | /api/documents | Yes | List documents |
 | 29 | GET | /api/documents/:id | Yes | Get document |
 | 30 | GET | /api/documents/:id/file | Yes | Document file stream |
@@ -903,10 +903,15 @@ When data exists:
 }
 ```
 
-| Field              | Type   | Description |
-|--------------------|--------|-------------|
-| departmentName     | string \| null | Name of the request’s department (SITE FACILITY / department). |
-| preparatorName     | string \| null | Full name of the user who created the request (PREPARED BY). |
+**Response body fields:**
+
+| Field                 | Type           | Description |
+|-----------------------|----------------|-------------|
+| data                  | object         | Key-value form data (all pages). Empty `{}` when none saved. |
+| formSectionsSnapshot  | array \| null  | Snapshot of form sections (e.g. from template). Each item may have `id`, `title`, `fields`. |
+| updatedAt             | string \| null | ISO 8601 timestamp of last form-data update. |
+| departmentName        | string \| null | Name of the request’s department (for UI e.g. SITE FACILITY). |
+| preparatorName        | string \| null | Full name of the user who created the request (for UI e.g. PREPARED BY). |
 
 **Errors:**
 
@@ -955,7 +960,7 @@ Each **pageEvents** entry (when provided) has:
 }
 ```
 
-**Success (200):** Same shape as GET form-data (updated `data`, `formSectionsSnapshot`, `updatedAt`, `departmentName`, `preparatorName`). Any `pageEvents` items are also written into `audit_logs` with `action='page_changed'` so they appear in the Activity Log.
+**Success (200):** Same response shape as GET form-data (see above): `data`, `formSectionsSnapshot`, `updatedAt`, `departmentName`, `preparatorName`. Any `pageEvents` items are written to `audit_logs` with `action='page_changed'` for the Activity Log.
 
 **Errors:**
 
@@ -1318,8 +1323,8 @@ All completed APIs. Base URL: `/api`. Auth = Bearer token (except login, health,
 | DELETE | /api/requests/:id | Yes | Delete request (and linked documents) |
 | GET | /api/requests/:id/page-remarks | Yes | List page-level remarks |
 | PUT | /api/requests/:id/page-remarks/:page | Yes | Save/upsert page remark |
-| GET | /api/requests/:id/form-data | Yes | Get form data |
-| PUT | /api/requests/:id/form-data | Yes | Save form data |
+| GET | /api/requests/:id/form-data | Yes | Get form data (includes departmentName, preparatorName for UI sidebar) |
+| PUT | /api/requests/:id/form-data | Yes | Save form data; response same as GET |
 | GET | /api/documents | Yes | List documents |
 | GET | /api/documents/:id | Yes | Get document |
 | GET | /api/documents/:id/file | Yes | Document file stream |

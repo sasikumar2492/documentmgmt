@@ -4,21 +4,21 @@ const { pool } = require('./pool');
 const defaultPassword = 'admin123';
 const testPassword = 'test123';
 
-// All roles from frontend UserRole type; one test user per role
+// One canonical role per type: admin, preparator, reviewer, approver, requestor, manager
 const roleUsers = [
   { role: 'admin', username: 'admin', fullName: 'Admin User' },
   { role: 'requestor', username: 'requestor', fullName: 'Test Requestor' },
   { role: 'preparator', username: 'preparator', fullName: 'Test Preparator' },
   { role: 'manager', username: 'manager', fullName: 'Test Manager' },
-  { role: 'manager_reviewer', username: 'manager_reviewer', fullName: 'Test Manager Reviewer' },
-  { role: 'manager_approver', username: 'manager_approver', fullName: 'Test Manager Approver' },
+  { role: 'reviewer', username: 'manager_reviewer', fullName: 'Test Manager Reviewer' },
+  { role: 'approver', username: 'manager_approver', fullName: 'Test Manager Approver' },
   { role: 'approver', username: 'approver', fullName: 'Test Approver' },
-  { role: 'Reviewer 1', username: 'reviewer1', fullName: 'Test Reviewer 1' },
-  { role: 'Reviewer 2', username: 'reviewer2', fullName: 'Test Reviewer 2' },
-  { role: 'Reviewer 3', username: 'reviewer3', fullName: 'Test Reviewer 3' },
-  { role: 'Reviewer 4', username: 'reviewer4', fullName: 'Test Reviewer 4' },
-  { role: 'Approver 1', username: 'approver1', fullName: 'Test Approver 1' },
-  { role: 'Approver 2', username: 'approver2', fullName: 'Test Approver 2' },
+  { role: 'reviewer', username: 'reviewer1', fullName: 'Test Reviewer 1' },
+  { role: 'reviewer', username: 'reviewer2', fullName: 'Test Reviewer 2' },
+  { role: 'reviewer', username: 'reviewer3', fullName: 'Test Reviewer 3' },
+  { role: 'reviewer', username: 'reviewer4', fullName: 'Test Reviewer 4' },
+  { role: 'approver', username: 'approver1', fullName: 'Test Approver 1' },
+  { role: 'approver', username: 'approver2', fullName: 'Test Approver 2' },
 ];
 
 const deptIds = [

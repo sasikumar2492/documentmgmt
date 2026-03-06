@@ -6,7 +6,24 @@ const emailService = require('../services/emailService');
 async function list(req, res) {
   try {
     const { request_id, status, department_id } = req.query;
-    const rows = await documentService.list({ request_id, status, department_id });
+    const filters = { request_id, status, department_id };
+    const role = (req.user && req.user.role ? req.user.role : '').toLowerCase();
+    const userId = req.user && req.user.id;
+    // When listing without a specific request_id, scope by user: preparator sees their requests' docs, reviewer/approver sees assigned requests' docs, admin sees all.
+    if (userId && !request_id) {
+      if (role === 'admin') {
+        // Admin: no extra filter
+      } else if (role.includes('preparator')) {
+        filters.created_by = userId;
+      } else if (role.includes('reviewer') || role.includes('approver')) {
+        filters.assigned_to = userId;
+      } else {
+        // Other roles: scope to created_by or assigned_to so they see only their requests' documents
+        filters.created_by = userId;
+        filters.assigned_to = userId;
+      }
+    }
+    const rows = await documentService.list(filters);
     res.json(rows);
   } catch (err) {
     console.error('Documents list error:', err);

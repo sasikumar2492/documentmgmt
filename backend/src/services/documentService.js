@@ -18,7 +18,7 @@ function mapRow(r) {
 }
 
 async function list(filters = {}) {
-  const { request_id, status, department_id } = filters;
+  const { request_id, status, department_id, created_by, assigned_to } = filters;
   let query = `
     SELECT doc.id, doc.request_id, doc.file_name, doc.file_path, doc.file_type, doc.version, doc.status,
            doc.created_by, doc.created_at, doc.updated_at
@@ -39,6 +39,21 @@ async function list(filters = {}) {
   if (department_id) {
     query += ` AND r.department_id = $${n++}`;
     params.push(department_id);
+  }
+  // User-based: show documents only for requests the user created or is assigned to.
+  if (created_by != null && assigned_to != null && created_by === assigned_to) {
+    query += ` AND (r.created_by = $${n++} OR r.assigned_to = $${n})`;
+    params.push(created_by, created_by);
+    n += 1;
+  } else {
+    if (created_by) {
+      query += ` AND r.created_by = $${n++}`;
+      params.push(created_by);
+    }
+    if (assigned_to) {
+      query += ` AND r.assigned_to = $${n++}`;
+      params.push(assigned_to);
+    }
   }
   query += ` ORDER BY doc.created_at DESC`;
   const client = await pool.connect();
