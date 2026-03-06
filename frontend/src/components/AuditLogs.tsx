@@ -476,7 +476,8 @@ export const AuditLogs: React.FC<AuditLogsProps> = ({
 
         <TabsContent value="activity" className="mt-0">
           <ActivityLogTable 
-            reports={reports} 
+            reports={reports}
+            auditLogs={auditLogs}
             onViewDetail={onViewActivityDetail}
           />
         </TabsContent>

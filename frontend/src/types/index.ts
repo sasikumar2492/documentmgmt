@@ -299,19 +299,29 @@ export interface UserData {
 export interface AuditLogEntry {
   id: string;
   timestamp: string;
-  action: 'document_uploaded' | 'request_submitted' | 'request_resubmitted' | 'request_approved' | 'request_rejected' | 'status_changed' | 'template_created' | 'workflow_approved' | 'form_edited' | 'user_login' | 'user_logout' | 'template_deleted' | 'request_deleted';
-  entityType: 'document' | 'request' | 'template' | 'workflow' | 'user' | 'system';
+  /** Raw backend action key, e.g. 'request_created', 'page_changed', 'review_started' */
+  action: string;
+  /** Backend entity type, typically 'request', 'document', etc. */
+  entityType: string;
   entityId: string;
+  /** Often the request ID like 'REQ-2026-10016' */
   entityName: string;
   user: string;
-  userRole: UserRole;
+  userRole: UserRole | string;
   department?: string;
+  /** Human readable or JSON-encoded details */
   details: string;
   ipAddress?: string;
   previousValue?: string;
   newValue?: string;
-  requestId?: string; // Optional request ID for filtering audit logs by specific request
-  signature?: ElectronicSignature; // Electronic signature data for critical actions
+  /** Optional request ID for filtering audit logs by specific request */
+  requestId?: string;
+  /** Optional backend-computed status for this activity (e.g. 'completed', 'in_progress', 'approved') */
+  status?: string;
+  /** Optional human readable title from backend (e.g. 'Review Started') */
+  title?: string;
+  /** Optional electronic signature data for critical actions */
+  signature?: ElectronicSignature;
 }
 
 export interface ElectronicSignature {

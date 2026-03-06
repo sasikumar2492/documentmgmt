@@ -147,12 +147,21 @@ export interface RequestActivityEntry {
   details?: string;
   ipAddress?: string;
   requestId?: string;
+  /** Optional per-activity status coming from backend (e.g. completed, in_progress, pending) */
+  status?: string;
+}
+
+export interface RequestActivityResponse {
+  /** Array of activity entries for this request */
+  activity: RequestActivityEntry[];
+  /** Overall request status used for the header (e.g. submitted, in_progress, approved) */
+  requestStatus?: string;
 }
 
 export async function getRequestActivity(
   requestId: string
-): Promise<RequestActivityEntry[]> {
-  const { data } = await apiClient.get<RequestActivityEntry[]>(
+): Promise<RequestActivityResponse> {
+  const { data } = await apiClient.get<RequestActivityResponse>(
     `/requests/${requestId}/activity`
   );
   return data;
@@ -188,21 +197,4 @@ export async function getRequestWorkflow(
   return data;
 }
 
-export interface RequestWorkflowActionBody {
-  action: 'init' | 'set_workflow' | 'approve' | 'reviewed' | 'reject' | 'request_revision' | string;
-  comment?: string;
-  workflow_id?: string;
-  ai_generated_definition?: unknown;
-}
-
-export async function postRequestWorkflowAction(
-  requestId: string,
-  body: RequestWorkflowActionBody
-): Promise<RequestWorkflowInstance | RequestApi> {
-  const { data } = await apiClient.post<RequestWorkflowInstance | RequestApi>(
-    `/requests/${requestId}/workflow/actions`,
-    body
-  );
-  return data;
-}
 

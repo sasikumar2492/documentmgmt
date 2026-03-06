@@ -1,19 +1,5 @@
 import { apiClient } from './client';
-
-export interface AuditLogEntry {
-  id: string;
-  timestamp: string;
-  action: string;
-  entityType: string;
-  entityId: string;
-  entityName?: string;
-  user?: string;
-  userRole?: string;
-  department?: string;
-  details?: string;
-  ipAddress?: string;
-  requestId?: string;
-}
+import type { AuditLogEntry } from '../types';
 
 export interface AuditLogParams {
   entity_type?: string;
