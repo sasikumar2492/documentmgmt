@@ -20,7 +20,6 @@ import {
 import { ReportData, type UserRole, type DepartmentData } from '../types';
 import { generateElectronicSignature, requiresSignature } from '../utils/signatureGenerator';
 import { getRequestActivity } from '../api/requests';
-import { getAuditLogs, type AuditLogEntry as ApiAuditLogEntry } from '../api/auditLogs';
 
 interface ActivityLogEntry {
   id: string;
@@ -39,7 +38,7 @@ interface RequestActivityLog {
   fileName: string;
   documentType: string;
   department: string;
-  status: 'pending' | 'in-review' | 'approved' | 'rejected' | 'returned' | 'in-progress';
+  status: 'pending' | 'submitted' | 'in-review' | 'approved' | 'rejected' | 'returned' | 'in-progress';
   submittedDate: string;
   lastUpdated: string;
   totalActivities: number;
@@ -60,6 +59,7 @@ export function ActivityLogDetail({ requestId, onBack, reports = [], departments
   const [apiActivities, setApiActivities] = useState<ActivityLogEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [apiRequestStatus, setApiRequestStatus] = useState<string | null>(null);
 
   // Map department ID to human-readable name
   const departmentNameById: Record<string, string> = Array.isArray(departments)
@@ -94,9 +94,16 @@ export function ActivityLogDetail({ requestId, onBack, reports = [], departments
 
       try {
         // GET /api/requests/:id/activity – request-specific audit log (no limit param)
-        const activityEntries = await getRequestActivity(requestUuid);
+        const activityResponse = await getRequestActivity(requestUuid);
         if (!isMounted) return;
-        if (activityEntries && activityEntries.length > 0) {
+        const activityEntries = Array.isArray((activityResponse as any)?.activity)
+          ? (activityResponse as any).activity
+          : [];
+        const responseRequestStatus =
+          (activityResponse as any)?.requestStatus ?? null;
+        setApiRequestStatus(responseRequestStatus);
+
+        if (activityEntries.length > 0) {
           const mapped: ActivityLogEntry[] = activityEntries.map((e) => {
             const performedBy = e.user || 'System';
             const role = e.userRole || 'System';
@@ -163,78 +170,13 @@ export function ActivityLogDetail({ requestId, onBack, reports = [], departments
           setApiActivities(mapped);
           return;
         }
-        // Fallback to global audit logs filtered by request
-        const entries: ApiAuditLogEntry[] = await getAuditLogs({
-          entity_type: 'request',
-          entity_id: reportMatch?.id,
-          request_id: reportMatch?.requestId || requestId,
-          limit: 200,
-        });
-        if (!isMounted) return;
-        const mapped: ActivityLogEntry[] = entries.map((e) => {
-          const performedBy = e.user || 'System';
-          const role = e.userRole || 'System';
-          const department = resolveDepartmentName(
-            e.department ||
-              reportMatch?.department ||
-              reportMatch?.departmentName ||
-              'General'
-          );
-
-          let details = e.details || '';
-          let esign: string | undefined;
-
-          if (details && details.trim().startsWith('{')) {
-            try {
-              const parsed = JSON.parse(details) as Record<string, unknown>;
-              if (typeof parsed.message === 'string') {
-                details = parsed.message;
-              } else {
-                const parts = Object.entries(parsed)
-                  .filter(([, value]) => value !== null && value !== undefined && value !== '')
-                  .map(
-                    ([key, value]) =>
-                      `${key.charAt(0).toUpperCase() + key.slice(1)}: ${String(value)}`
-                  );
-                if (parts.length > 0) {
-                  details = parts.join(' | ');
-                }
-              }
-              if (typeof (parsed as any).signatureId === 'string') {
-                esign = (parsed as any).signatureId;
-              }
-            } catch {
-              // Ignore JSON parse errors and keep raw details
-            }
-          }
-
-          if (!esign && requiresSignature(e.action)) {
-            const sig = generateElectronicSignature(
-              performedBy,
-              (role as UserRole) || 'admin',
-              e.action,
-              e.requestId || reportMatch?.requestId || requestId
-            );
-            esign = sig.signatureId;
-          }
-
-          return {
-            id: e.id,
-            action: e.action.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()),
-            performedBy,
-            role,
-            timestamp: e.timestamp,
-            department,
-            details,
-            esign,
-            status: mapEntryStatus((e as any).status),
-          };
-        });
-        setApiActivities(mapped);
+        // No request activity entries from API – leave apiActivities null so we use report-based timeline
+        setApiActivities(null);
       } catch (err: any) {
         if (!isMounted) return;
         setLoadError(err?.response?.data?.error || 'Failed to load activity from server');
         setApiActivities(null);
+        setApiRequestStatus(null);
       } finally {
         if (isMounted) setLoading(false);
       }
@@ -427,22 +369,27 @@ export function ActivityLogDetail({ requestId, onBack, reports = [], departments
     return activities;
   };
 
-  // Map report status to activity log status
+  // Map backend request status (from report or activity API) to header status
   const mapReportStatusToActivityStatus = (reportStatus?: string): RequestActivityLog['status'] => {
     if (!reportStatus) return 'pending';
+    const normalized = reportStatus.toLowerCase().replace(/_/g, '-');
     
-    switch (reportStatus) {
+    switch (normalized) {
       case 'approved':
         return 'approved';
       case 'rejected':
         return 'rejected';
       case 'needs-revision':
         return 'returned';
-      case 'initial-review':
+      case 'in-progress':
+        return 'in-progress';
+      case 'in-review':
       case 'review-process':
+      case 'initial-review':
       case 'final-review':
         return 'in-review';
       case 'submitted':
+        return 'submitted';
       case 'pending':
       default:
         return 'pending';
@@ -475,19 +422,13 @@ export function ActivityLogDetail({ requestId, onBack, reports = [], departments
         ? apiActivities
         : generateActivitiesFromReport(currentReport);
 
-    const latestActivity = activities.reduce<ActivityLogEntry | null>((latest, current) => {
-      if (!latest) return current;
-      const latestTime = new Date(latest.timestamp).getTime();
-      const currentTime = new Date(current.timestamp).getTime();
-      return currentTime > latestTime ? current : latest;
-    }, null);
-
+    // Determine header status priority:
+    // 1) requestStatus returned by /activity API
+    // 2) fallback to report.status
     let overallStatus: RequestActivityLog['status'];
-    if (latestActivity && latestActivity.status !== 'completed') {
-      // Use the exact latest entry status (so in_progress shows as In Progress)
-      overallStatus = latestActivity.status as RequestActivityLog['status'];
+    if (apiRequestStatus) {
+      overallStatus = mapReportStatusToActivityStatus(apiRequestStatus);
     } else {
-      // Fallback to report-level status mapping
       overallStatus = mapReportStatusToActivityStatus(currentReport.status);
     }
 
@@ -523,8 +464,9 @@ export function ActivityLogDetail({ requestId, onBack, reports = [], departments
   }
 
   const getStatusBadge = (status: RequestActivityLog['status']) => {
-    const styles = {
+    const styles: Record<RequestActivityLog['status'], string> = {
       pending: 'bg-gradient-to-r from-yellow-500 to-orange-500 text-white shadow-md',
+      submitted: 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md',
       'in-review': 'bg-gradient-to-r from-blue-500 to-cyan-600 text-white shadow-md',
       'in-progress': 'bg-gradient-to-r from-blue-500 to-cyan-600 text-white shadow-md',
       approved: 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-md',
@@ -533,6 +475,7 @@ export function ActivityLogDetail({ requestId, onBack, reports = [], departments
     };
     const labelMap: Record<RequestActivityLog['status'], string> = {
       pending: 'Pending',
+      submitted: 'Submitted',
       'in-review': 'In Review',
       'in-progress': 'In Progress',
       approved: 'Approved',

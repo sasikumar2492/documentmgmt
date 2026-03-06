@@ -39,7 +39,7 @@ import {
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
-import { ReportData } from '../types';
+import { ReportData, AuditLogEntry as BackendAuditLogEntry } from '../types';
 
 interface ActivityLogEntry {
   id: string;
@@ -58,7 +58,7 @@ interface RequestActivityLog {
   fileName: string;
   documentType: string;
   department: string;
-  status: 'pending' | 'in-review' | 'approved' | 'rejected' | 'returned';
+  status: 'pending' | 'submitted' | 'in-review' | 'in-progress' | 'approved' | 'rejected' | 'returned';
   submittedDate: string;
   lastUpdated: string;
   totalActivities: number;
@@ -68,10 +68,12 @@ interface RequestActivityLog {
 interface ActivityLogTableProps {
   onViewDetail?: (requestId: string) => void;
   reports?: ReportData[];
+  /** Optional raw audit logs. When provided, listing will be derived from these instead of synthetic data. */
+  auditLogs?: BackendAuditLogEntry[];
   onExport?: () => void;
 }
 
-export function ActivityLogTable({ onViewDetail, reports = [], onExport }: ActivityLogTableProps) {
+export function ActivityLogTable({ onViewDetail, reports = [], auditLogs = [], onExport }: ActivityLogTableProps) {
   const [selectedRequest, setSelectedRequest] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterDocType, setFilterDocType] = useState<string>('all');
@@ -80,7 +82,96 @@ export function ActivityLogTable({ onViewDetail, reports = [], onExport }: Activ
   const [currentPage, setCurrentPage] = useState(1);
   const recordsPerPage = 10;
 
-  // Generate activity logs from reports data
+  const mapLogStatusToRowStatus = (rawStatus?: string | null): RequestActivityLog['status'] => {
+    if (!rawStatus) return 'pending';
+    const normalized = rawStatus.toLowerCase().replace(/_/g, '-');
+    switch (normalized) {
+      case 'approved':
+        return 'approved';
+      case 'rejected':
+        return 'rejected';
+      case 'needs-revision':
+      case 'needs_revision':
+        return 'returned';
+      case 'in-progress':
+        return 'in-progress';
+      case 'submitted':
+      case 'resubmitted':
+        return 'submitted';
+      default:
+        return 'pending';
+    }
+  };
+
+  const mapLogStatusToActivityStatus = (rawStatus?: string | null): ActivityLogEntry['status'] => {
+    if (!rawStatus) return 'completed';
+    const normalized = rawStatus.toLowerCase().replace(/_/g, '-');
+    if (normalized === 'in-progress') return 'in-progress';
+    if (normalized === 'pending' || normalized === 'submitted' || normalized === 'resubmitted') return 'pending';
+    return 'completed';
+  };
+
+  const buildActivitiesFromAuditLogs = (logs: BackendAuditLogEntry[]): RequestActivityLog[] => {
+    const byRequest: Record<string, BackendAuditLogEntry[]> = {};
+
+    logs.forEach((entry) => {
+      if (entry.entityType !== 'request') return;
+      const key = entry.requestId || entry.entityName || entry.entityId;
+      if (!key) return;
+      if (!byRequest[key]) byRequest[key] = [];
+      byRequest[key].push(entry);
+    });
+
+    const result: RequestActivityLog[] = [];
+
+    Object.entries(byRequest).forEach(([requestKey, entries]) => {
+      // Sort by timestamp ascending so last element is latest
+      entries.sort(
+        (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      );
+      const latest = entries[entries.length - 1];
+
+      const reportMatch = reports.find(
+        (r) => r.requestId === requestKey || r.id === latest.entityId
+      );
+
+      const activities: ActivityLogEntry[] = entries.map((e) => ({
+        id: e.id,
+        action: (e.title || e.action || '')
+          .replace(/_/g, ' ')
+          .replace(/\b\w/g, (l) => l.toUpperCase()),
+        performedBy: e.user || 'System',
+        role: e.userRole || 'System',
+        timestamp: e.timestamp,
+        department: e.department || reportMatch?.department || 'General',
+        details: e.details || '',
+        status: mapLogStatusToActivityStatus(e.status),
+      }));
+
+      const submittedEntry =
+        entries.find((e) => e.action === 'request_created') ?? entries[0];
+
+      result.push({
+        requestId: requestKey,
+        fileName: reportMatch?.fileName || latest.entityName || 'Unknown Document',
+        documentType: reportMatch?.documentType || 'Request',
+        department: latest.department || reportMatch?.department || 'General',
+        status: mapLogStatusToRowStatus(latest.status),
+        submittedDate: submittedEntry.timestamp,
+        lastUpdated: latest.timestamp,
+        totalActivities: entries.length,
+        activities,
+      });
+    });
+
+    // Sort requests by lastUpdated desc (most recent first)
+    result.sort(
+      (a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime()
+    );
+    return result;
+  };
+
+  // Generate activity logs from reports data (fallback when auditLogs not provided)
   const generateActivitiesFromReport = (report: ReportData): ActivityLogEntry[] => {
     const activities: ActivityLogEntry[] = [];
     const department = report.assignedTo || report.department || 'General';
@@ -221,8 +312,13 @@ export function ActivityLogTable({ onViewDetail, reports = [], onExport }: Activ
   // Map report status to activity log status
   const mapReportStatusToActivityStatus = (reportStatus?: string): RequestActivityLog['status'] => {
     if (!reportStatus) return 'pending';
+    const normalized = reportStatus.toLowerCase().replace(/_/g, '-');
     
-    switch (reportStatus) {
+    switch (normalized) {
+      case 'submitted':
+        return 'submitted';
+      case 'in-progress':
+        return 'in-progress';
       case 'approved':
         return 'approved';
       case 'rejected':
@@ -231,7 +327,6 @@ export function ActivityLogTable({ onViewDetail, reports = [], onExport }: Activ
       case 'review-process':
       case 'final-review':
         return 'in-review';
-      case 'submitted':
       case 'pending':
       default:
         return 'pending';
@@ -239,21 +334,25 @@ export function ActivityLogTable({ onViewDetail, reports = [], onExport }: Activ
   };
 
   // Generate activity logs from reports
-  const allActivityLogs: RequestActivityLog[] = reports.map((report) => {
-    const activities = generateActivitiesFromReport(report);
-    
-    return {
-      requestId: report.requestId || `REQ-${report.id}`,
-      fileName: report.fileName || 'Unknown Document',
-      documentType: report.documentType || 'Approval Request',
-      department: report.assignedTo || report.department || 'General',
-      status: mapReportStatusToActivityStatus(report.status),
-      submittedDate: report.uploadDate || new Date().toLocaleDateString(),
-      lastUpdated: report.lastModified || report.uploadDate || new Date().toLocaleString(),
-      totalActivities: activities.length,
-      activities: activities,
-    };
-  });
+  const allActivityLogs: RequestActivityLog[] =
+    auditLogs && auditLogs.length > 0
+      ? buildActivitiesFromAuditLogs(auditLogs)
+      : reports.map((report) => {
+          const activities = generateActivitiesFromReport(report);
+          
+          return {
+            requestId: report.requestId || `REQ-${report.id}`,
+            fileName: report.fileName || 'Unknown Document',
+            documentType: report.documentType || 'Approval Request',
+            department: report.assignedTo || report.department || 'General',
+            status: mapReportStatusToActivityStatus(report.status),
+            submittedDate: report.uploadDate || new Date().toLocaleDateString(),
+            lastUpdated:
+              report.lastModified || report.uploadDate || new Date().toLocaleString(),
+            totalActivities: activities.length,
+            activities: activities,
+          };
+        });
 
   // Extract unique values for filters
   const uniqueDocTypes = Array.from(new Set(allActivityLogs.map(log => log.documentType)));
@@ -348,9 +447,12 @@ export function ActivityLogTable({ onViewDetail, reports = [], onExport }: Activ
                 <SelectContent className="bg-white rounded-xl shadow-xl border-slate-100">
                   <SelectItem value="all">All Status</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="submitted">Submitted</SelectItem>
                   <SelectItem value="in-review">In-Review</SelectItem>
+              <SelectItem value="in-progress">In-Progress</SelectItem>
                   <SelectItem value="approved">Approved</SelectItem>
                   <SelectItem value="rejected">Rejected</SelectItem>
+              <SelectItem value="returned">Returned</SelectItem>
                 </SelectContent>
               </Select>
             </div>

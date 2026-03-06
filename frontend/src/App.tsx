@@ -79,7 +79,6 @@ import {
   updateRequest,
   getFormData,
   putFormData,
-  postRequestWorkflowAction,
 } from './api/requests';
 import { getTemplateFileBlob, importDocxToSfdt } from './api/templates';
 
@@ -1441,53 +1440,40 @@ export default function App() {
     const { id } = pendingSubmissionData;
     const { action } = assignment;
 
-    // Handle Reviewer specialized actions
+    // Handle Reviewer specialized actions (use PATCH /api/requests/:id)
     if (action && action !== 'submit') {
-      // Map UI actions to backend workflow actions (reviewed vs approve by role)
-      const workflowActionMap: Record<string, 'reviewed' | 'approve' | 'reject' | 'request_revision'> = {
-        reviewed: 'reviewed',
-        approve: 'approve',
-        revision: 'request_revision',
-        rejected: 'reject',
-      };
-
-      const workflowAction = workflowActionMap[action];
-
-      // Call backend workflow action API when applicable
-      if (workflowAction) {
-        try {
-          await postRequestWorkflowAction(id, {
-            action: workflowAction,
-            comment: assignment.comments || undefined,
-          });
-        } catch (error) {
-          console.error('Failed to post workflow action', error);
-          toast.error('Failed to update workflow status. Please try again.');
-        }
-      }
-
       const statusMap: Record<string, ReportData['status']> = {
         reviewed: 'reviewed',
         approve: 'approved',
         revision: 'needs-revision',
         rejected: 'rejected',
       };
-      
+
       const newStatus = statusMap[action];
       if (newStatus) {
+        try {
+          await updateRequest(id, {
+            status: newStatus,
+            ...(assignment.comments && { submission_comments: assignment.comments }),
+          });
+        } catch (error) {
+          console.error('Failed to update request status', error);
+          toast.error('Failed to update workflow status. Please try again.');
+          return;
+        }
         updateReportStatus(id, newStatus);
-        
-        // Log activity
-        const actionLabel = action === 'reviewed'
-          ? 'Reviewed'
-          : action === 'approve'
-          ? 'Approved'
-          : action === 'revision'
-          ? 'Sent for Revision'
-          : 'Rejected';
-          
+
+        const actionLabel =
+          action === 'reviewed'
+            ? 'Reviewed'
+            : action === 'approve'
+              ? 'Approved'
+              : action === 'revision'
+                ? 'Sent for Revision'
+                : 'Rejected';
+
         toast.success(`Request ${actionLabel} successfully`);
-        
+
         setIsSubmissionModalOpen(false);
         setCurrentView('document-library');
         return;
@@ -2009,6 +1995,7 @@ export default function App() {
               <ActivityLogTable 
                 onViewDetail={(id) => { setSelectedActivityLogRequestId(id); setCurrentView('activity-log-detail'); }}
                 reports={reports}
+                auditLogs={auditLogs}
               />
             </div>
           )}
