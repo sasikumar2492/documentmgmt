@@ -178,7 +178,7 @@ async function create(data) {
     const request_id = await nextRequestId(client);
     await client.query(
       `INSERT INTO requests (template_id, request_id, title, department_id, status, created_by)
-       VALUES ($1, $2, $3, $4, 'draft', $5)`,
+       VALUES ($1, $2, $3, $4, 'pending', $5)`,
       [template_id, request_id, title || null, department_id || null, created_by]
     );
     const q = await client.query(
