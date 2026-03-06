@@ -87,6 +87,21 @@ function buildHumanDetails(row) {
     return 'Request deleted.';
   }
 
+  if (action === 'page_changed') {
+    const page = detailsObj && (detailsObj.pageNumber || detailsObj.page || detailsObj.page_index);
+    const type = detailsObj && (detailsObj.eventType || detailsObj.type);
+    const summary = detailsObj && detailsObj.summary;
+    const pageLabel = page ? `Page ${page}` : 'Page';
+    const base =
+      type === 'view'
+        ? `${pageLabel} viewed.`
+        : `${pageLabel} edited.`;
+    if (summary && String(summary).trim()) {
+      return `${base} ${String(summary).trim()}`;
+    }
+    return base;
+  }
+
   if (action === 'status_changed') {
     const from = detailsObj && detailsObj.from;
     const to = detailsObj && detailsObj.to;

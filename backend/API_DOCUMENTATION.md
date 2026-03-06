@@ -886,7 +886,7 @@ When data exists:
 
 ### PUT /api/requests/:id/form-data
 
-Create or update form data for a request.
+Create or update form data for a request. This powers **Save Draft** and restoring partially filled forms. It can also optionally record page-level tracking events together with the save.
 
 **Auth required:** Yes
 
@@ -894,21 +894,37 @@ Create or update form data for a request.
 
 **Request body (JSON):**
 
-| Field              | Type   | Required | Description              |
-|--------------------|--------|----------|--------------------------|
-| data               | object | No       | Key-value form data      |
-| formSectionsSnapshot | any  | No       | Snapshot of form sections (e.g. from template) |
+| Field                | Type    | Required | Description                                                                 |
+|----------------------|---------|----------|-----------------------------------------------------------------------------|
+| data                 | object  | No       | Key-value form data for all pages                                          |
+| formSectionsSnapshot | any     | No       | Snapshot of form sections (e.g. from template)                             |
+| pageEvents           | object[]| No       | Optional array of page tracking events to record in the audit log          |
+
+Each **pageEvents** entry (when provided) has:
+
+| Field      | Type   | Required | Description                                      |
+|-----------|--------|----------|--------------------------------------------------|
+| pageNumber| number | Yes      | 1-based page index that was edited              |
+| eventType | string | No       | `view` or `edit` (defaults to `edit`)           |
+| summary   | string | No       | Optional free-text summary of what changed      |
 
 **Example:**
 
 ```json
 {
   "data": { "field_1": "value1", "field_2": "value2" },
-  "formSectionsSnapshot": [ { "title": "Section 1", "fields": [] } ]
+  "formSectionsSnapshot": [ { "title": "Section 1", "fields": [] } ],
+  "pageEvents": [
+    {
+      "pageNumber": 1,
+      "eventType": "edit",
+      "summary": "Updated request header information on Page 1."
+    }
+  ]
 }
 ```
 
-**Success (200):** Same shape as GET form-data (updated `data`, `formSectionsSnapshot`, `updatedAt`).
+**Success (200):** Same shape as GET form-data (updated `data`, `formSectionsSnapshot`, `updatedAt`). Any `pageEvents` items are also written into `audit_logs` with `action='page_changed'` so they appear in the Activity Log.
 
 **Errors:**
 
