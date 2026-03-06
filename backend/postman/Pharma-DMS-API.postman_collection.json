@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Pharma DMS API",
-    "description": "REST API for Pharma Document Management System – all completed APIs as of latest update. Includes: Health; Auth (login, me, refresh, forgot/reset password); Dashboard summary; Departments; Users; Templates (list, get, file, download, upload, update); Requests (list with filters/search/pagination/sort, get, activity, workflow, workflow actions, page-remarks, form-data, create, update, delete); Documents (list, get, file, upload, update); Audit Logs; Workflows (list, get, steps, create, update); Workflow Rules (list, get, create, update). Base URL: {{baseUrl}}. After login, token is saved to collection variable for Bearer auth.",
+    "description": "REST API for Pharma Document Management System – all completed APIs. Includes: Health; Auth (login, me, refresh, forgot/reset password); Dashboard summary (user-scoped); Departments; Users; Templates (list, get, file, download, upload, update); Requests (list with view=library for Document Library, filters/search/pagination/sort, get, activity with requestStatus+activity and per-entry status, workflow, workflow actions, page-remarks, form-data, create, update with reviewer→approver auto-advance on status=reviewed, delete); Documents (list user-scoped when no request_id, get, file, upload, update); Audit Logs; Workflows; Workflow Rules. Base URL: {{baseUrl}}. After login, token saved to {{token}} for Bearer auth.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -257,10 +257,11 @@
           "request": {
             "method": "GET",
             "url": {
-              "raw": "{{baseUrl}}/requests?department_id=&status=&q=&assigned_to=&from_date=&to_date=&sortBy=created_at&sortOrder=desc&page=&pageSize=",
+              "raw": "{{baseUrl}}/requests?view=library&department_id=&status=&q=&assigned_to=&from_date=&to_date=&sortBy=created_at&sortOrder=desc&page=&pageSize=",
               "host": ["{{baseUrl}}"],
               "path": ["requests"],
               "query": [
+                { "key": "view", "value": "library", "description": "Document Library: user-created or assigned, excludes draft/pending" },
                 { "key": "department_id", "value": "", "disabled": true },
                 { "key": "status", "value": "draft", "disabled": true },
                 { "key": "q", "value": "", "disabled": true, "description": "Search title, request_id, department name" },
@@ -273,7 +274,7 @@
                 { "key": "pageSize", "value": "10", "disabled": true, "description": "Max 500" }
               ]
             },
-            "description": "List requests (Document Library). Optional: department_id, status, q (search), assigned_to, from_date, to_date, sortBy, sortOrder. Use page + pageSize for paginated response { data, total, page, pageSize }."
+            "description": "List requests. view=library: Document Library (user created or assigned, status excludes draft/pending). Optional: department_id, status, q, assigned_to, from_date, to_date, sortBy, sortOrder. Pagination: page + pageSize → { data, total, page, pageSize }."
           }
         },
         {
@@ -289,7 +290,7 @@
           "request": {
             "method": "GET",
             "url": "{{baseUrl}}/requests/{{requestId}}/activity",
-            "description": "Audit log entries for this request."
+            "description": "View Audit Log: returns { requestStatus, activity }. requestStatus = current request status. Each activity entry has id, timestamp, action, user, details, requestId, title, status (completed|in_progress|approved|rejected|needs_revision for timeline badges). Optional query: limit."
           }
         },
         {
@@ -347,10 +348,10 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"status\": \"submitted\",\n  \"assigned_to\": null,\n  \"reviewSequence\": [],\n  \"priority\": \"medium\",\n  \"submissionComments\": null\n}"
+              "raw": "{\n  \"status\": \"reviewed\",\n  \"assigned_to\": null,\n  \"reviewSequence\": [],\n  \"priority\": \"medium\",\n  \"submissionComments\": null\n}"
             },
             "url": "{{baseUrl}}/requests/{{requestId}}",
-            "description": "Update request. Body: title, status, assigned_to, review_sequence/reviewSequence, priority, submission_comments (all optional)."
+            "description": "Update request. Body: title, status, assigned_to, review_sequence/reviewSequence, priority, submission_comments (all optional). Reviewer: status = reviewed | needs_revision | rejected. Approver: status = approved | needs_revision | rejected. When status=reviewed, API auto-sets assigned_to to next in review_sequence (e.g. approver). Example reviewer pass: { \"status\": \"reviewed\" }."
           }
         },
         {
@@ -427,7 +428,7 @@
                 { "key": "department_id", "value": "", "disabled": true }
               ]
             },
-            "description": "List documents. Optional: request_id, status, department_id."
+            "description": "List documents. When request_id is omitted, list is user-scoped by role (preparator: created_by; reviewer/approver: assigned_to; admin: all). Optional: request_id, status, department_id."
           }
         },
         {

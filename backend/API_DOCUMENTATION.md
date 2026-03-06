@@ -7,7 +7,7 @@
 
 ## Completed APIs Overview
 
-All endpoints currently implemented and available for the frontend and Postman (as of latest update).
+All endpoints currently implemented and available for the frontend and Postman. Includes: user-scoped request list (view=library for Document Library), reviewer→approver auto-advance on PATCH status=reviewed, activity API with requestStatus and per-entry status, user-scoped document list when request_id is omitted.
 
 | # | Method | Endpoint | Auth | Description |
 |---|--------|----------|------|-------------|
@@ -26,19 +26,19 @@ All endpoints currently implemented and available for the frontend and Postman (
 | 13 | GET | /api/templates/:id/download | Yes | Presigned S3 download URL (or 404) |
 | 14 | POST | /api/templates | Yes | Upload template (multipart) |
 | 15 | PATCH | /api/templates/:id | Yes | Update template |
-| 16 | GET | /api/requests | Yes | List requests (filters, search, pagination, sort) |
+| 16 | GET | /api/requests | Yes | List requests; view=library for Document Library (user-scoped, excludes draft/pending); filters, search, pagination, sort |
 | 17 | GET | /api/requests/:id | Yes | Get request |
-| 18 | GET | /api/requests/:id/activity | Yes | Request activity / audit entries |
+| 18 | GET | /api/requests/:id/activity | Yes | Request activity; response { requestStatus, activity }; each entry has status (completed, in_progress, approved, rejected, needs_revision) |
 | 19 | GET | /api/requests/:id/workflow | Yes | Request workflow instance and steps |
 | 20 | POST | /api/requests/:id/workflow/actions | Yes | Workflow action (init, approve, reject, request_revision) |
 | 21 | POST | /api/requests | Yes | Create request |
-| 22 | PATCH | /api/requests/:id | Yes | Update request |
+| 22 | PATCH | /api/requests/:id | Yes | Update request; status=reviewed auto-advances assigned_to to next in review_sequence (reviewer→approver) |
 | 23 | DELETE | /api/requests/:id | Yes | Delete request (and linked documents) |
 | 24 | GET | /api/requests/:id/page-remarks | Yes | List page-level remarks for a request |
 | 25 | PUT | /api/requests/:id/page-remarks/:page | Yes | Save/upsert page remark |
 | 26 | GET | /api/requests/:id/form-data | Yes | Get form data (data, formSectionsSnapshot, updatedAt, departmentName, preparatorName) |
 | 27 | PUT | /api/requests/:id/form-data | Yes | Save form data; response same shape as GET |
-| 28 | GET | /api/documents | Yes | List documents |
+| 28 | GET | /api/documents | Yes | List documents; user-scoped by role when request_id omitted (preparator/reviewer/approver/admin) |
 | 29 | GET | /api/documents/:id | Yes | Get document |
 | 30 | GET | /api/documents/:id/file | Yes | Document file stream |
 | 31 | POST | /api/documents | Yes | Upload document (multipart) |
@@ -541,8 +541,9 @@ List requests (for Raise Request / Document Library). Supports filters, search, 
 
 | Parameter     | Type   | Required | Description        |
 |---------------|--------|----------|--------------------|
+| view          | string | No       | `library` = Document Library: only requests the user created or is assigned to; status excludes `draft` and `pending`. Omit for full list (admin) or other views. |
 | department_id | string | No       | Filter by department UUID |
-| status        | string | No       | e.g. `draft`, `submitted` |
+| status        | string | No       | e.g. `draft`, `submitted`, `reviewed`, `needs_revision`, `rejected`, `approved` |
 | q             | string | No       | Search in title, request_id, department name (ILIKE) |
 | assigned_to   | string | No       | Filter by assignee user UUID |
 | from_date     | string | No       | Filter created_at >= (ISO date/timestamptz) |
@@ -553,6 +554,12 @@ List requests (for Raise Request / Document Library). Supports filters, search, 
 | pageSize      | number | No       | Page size, max 500 (use with page for paginated response) |
 
 When both `page` and `pageSize` are provided, the response is `{ data, total, page, pageSize }`. Otherwise the response is an array of requests.
+
+**Document Library flow (GET /api/requests?view=library):**
+
+- Preparator creates a request and sets one reviewer and one approver in `review_sequence` (e.g. `[reviewerUuid, approverUuid]`) and sets `assigned_to` to the reviewer. Document Library shows the request with status and **Assigned to** = reviewer.
+- **Reviewer** actions: set `status` to `reviewed` (pass to approver), `needs_revision`, or `rejected`. When the reviewer sets status to **reviewed**, the API automatically advances `assigned_to` to the next user in `review_sequence` (the approver). Document Library then shows **Assigned to** = approver and status = reviewed.
+- **Approver** actions: set `status` to `approved`, `needs_revision`, or `rejected`. Document Library reflects the final status accordingly.
 
 **Success (200):** Array of request DTOs, or when paginated: `{ "data": [...], "total": 42, "page": 1, "pageSize": 10 }`. Each item:
 
@@ -739,11 +746,17 @@ Update request (status, assignment, priority, etc.).
 | Field              | Type   | Description                    |
 |--------------------|--------|--------------------------------|
 | title              | string | Request title                  |
-| status             | string | e.g. submitted, approved      |
+| status             | string | See status values below        |
 | assigned_to / assignedTo | string | Assignee user UUID   |
-| review_sequence / reviewSequence | array | User UUIDs in order |
+| review_sequence / reviewSequence | array | User UUIDs in order (e.g. [reviewer, approver]) |
 | priority           | string | e.g. high, medium, low         |
 | submission_comments / submissionComments | string | Comments on submit |
+
+**Status values and flow:**
+
+- **Reviewer** may set: `reviewed` (pass to approver), `needs_revision`, `rejected`.
+- **Approver** may set: `approved`, `needs_revision`, `rejected`.
+- When the client sets `status` to **reviewed**, the API automatically sets `assigned_to` to the **next user** in the request’s `review_sequence` (e.g. from reviewer to approver). The client does not need to send `assigned_to` in that case; the response will contain the updated assignee. Document Library (GET /api/requests?view=library) reflects the new assignee and status.
 
 **Example:**
 
@@ -754,6 +767,14 @@ Update request (status, assignment, priority, etc.).
   "reviewSequence": ["uuid1", "uuid2"],
   "priority": "high",
   "submissionComments": "Ready for review"
+}
+```
+
+**Example (reviewer passes to approver):** Send only status; assignee is advanced by the API.
+
+```json
+{
+  "status": "reviewed"
 }
 ```
 
@@ -997,7 +1018,7 @@ Each **pageEvents** entry (when provided) has:
 
 ### GET /api/documents
 
-List documents with optional filters.
+List documents with optional filters. When **request_id** is not provided, results are **user-scoped** by role: preparator sees documents for requests they created; reviewer/approver see documents for requests they are assigned to; admin sees all.
 
 **Auth required:** Yes
 
@@ -1005,7 +1026,7 @@ List documents with optional filters.
 
 | Parameter     | Type   | Required | Description           |
 |---------------|--------|----------|------------------------|
-| request_id    | string | No       | Filter by request UUID |
+| request_id    | string | No       | Filter by request UUID. If omitted, list is user-scoped (see above). |
 | status        | string | No       | e.g. draft, approved   |
 | department_id | string | No       | Filter by department   |
 
@@ -1337,19 +1358,19 @@ All completed APIs. Base URL: `/api`. Auth = Bearer token (except login, health,
 | GET | /api/templates/:id/download | Yes | Presigned S3 download URL (or 404) |
 | POST | /api/templates | Yes | Upload template (multipart) |
 | PATCH | /api/templates/:id | Yes | Update template |
-| GET | /api/requests | Yes | List requests (filters, search, pagination, sort) |
+| GET | /api/requests | Yes | List requests; view=library for Document Library (user-scoped); filters, search, pagination, sort |
 | GET | /api/requests/:id | Yes | Get request |
-| GET | /api/requests/:id/activity | Yes | Request activity/audit entries |
+| GET | /api/requests/:id/activity | Yes | Request activity; { requestStatus, activity }; per-entry status for View Audit Log |
 | GET | /api/requests/:id/workflow | Yes | Request workflow instance and steps |
 | POST | /api/requests/:id/workflow/actions | Yes | Workflow action (init, approve, reject, etc.) |
 | POST | /api/requests | Yes | Create request |
-| PATCH | /api/requests/:id | Yes | Update request |
+| PATCH | /api/requests/:id | Yes | Update request; status=reviewed auto-advances assigned_to (reviewer→approver) |
 | DELETE | /api/requests/:id | Yes | Delete request (and linked documents) |
 | GET | /api/requests/:id/page-remarks | Yes | List page-level remarks |
 | PUT | /api/requests/:id/page-remarks/:page | Yes | Save/upsert page remark |
 | GET | /api/requests/:id/form-data | Yes | Get form data (includes departmentName, preparatorName for UI sidebar) |
 | PUT | /api/requests/:id/form-data | Yes | Save form data; response same as GET |
-| GET | /api/documents | Yes | List documents |
+| GET | /api/documents | Yes | List documents; user-scoped by role when request_id omitted |
 | GET | /api/documents/:id | Yes | Get document |
 | GET | /api/documents/:id/file | Yes | Document file stream |
 | POST | /api/documents | Yes | Upload document (multipart) |
