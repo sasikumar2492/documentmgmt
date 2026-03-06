@@ -86,6 +86,8 @@ function determineVerificationMethod(action: string): 'password' | 'biometric' |
  */
 export function requiresSignature(action: string): boolean {
   const signatureRequiredActions = [
+    'document_uploaded',
+    'request_created',
     'request_submitted',
     'request_approved',
     'request_rejected',

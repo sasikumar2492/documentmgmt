@@ -17,7 +17,8 @@ import {
   ChevronRight,
   Shield,
 } from 'lucide-react';
-import { ReportData } from '../types';
+import { ReportData, type UserRole, type DepartmentData } from '../types';
+import { generateElectronicSignature, requiresSignature } from '../utils/signatureGenerator';
 import { getRequestActivity } from '../api/requests';
 import { getAuditLogs, type AuditLogEntry as ApiAuditLogEntry } from '../api/auditLogs';
 
@@ -49,14 +50,29 @@ interface ActivityLogDetailProps {
   requestId: string;
   onBack: () => void;
   reports?: ReportData[];
+  /** Optional departments list so we can show department names instead of IDs */
+  departments?: DepartmentData[];
 }
 
-export function ActivityLogDetail({ requestId, onBack, reports = [] }: ActivityLogDetailProps) {
+export function ActivityLogDetail({ requestId, onBack, reports = [], departments = [] }: ActivityLogDetailProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const activitiesPerPage = 5;
   const [apiActivities, setApiActivities] = useState<ActivityLogEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Map department ID to human-readable name
+  const departmentNameById: Record<string, string> = Array.isArray(departments)
+    ? departments.reduce<Record<string, string>>((acc, d) => {
+        if (d && d.id && d.name) acc[d.id] = d.name;
+        return acc;
+      }, {})
+    : {};
+
+  const resolveDepartmentName = (value?: string | null): string => {
+    if (!value) return 'General';
+    return departmentNameById[value] || value;
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -69,21 +85,73 @@ export function ActivityLogDetail({ requestId, onBack, reports = [] }: ActivityL
       const requestUuid = reportMatch?.id || requestId;
 
       try {
-        // Prefer GET /api/requests/:id/activity for request-specific audit log
-        const activityEntries = await getRequestActivity(requestUuid, { limit: 200 });
+        // GET /api/requests/:id/activity – request-specific audit log (no limit param)
+        const activityEntries = await getRequestActivity(requestUuid);
         if (!isMounted) return;
         if (activityEntries && activityEntries.length > 0) {
-          const mapped: ActivityLogEntry[] = activityEntries.map((e) => ({
-            id: e.id,
-            action: (e.action || '').replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()),
-            performedBy: e.user || 'System',
-            role: e.userRole || 'System',
-            timestamp: e.timestamp,
-            department: e.department || reportMatch?.department || reportMatch?.departmentName || 'General',
-            details: e.details || '',
-            esign: undefined,
-            status: 'completed',
-          }));
+          const mapped: ActivityLogEntry[] = activityEntries.map((e) => {
+            const performedBy = e.user || 'System';
+            const role = e.userRole || 'System';
+            const department = resolveDepartmentName(
+              e.department ||
+                reportMatch?.department ||
+                reportMatch?.departmentName ||
+                'General'
+            );
+
+            let details = e.details || '';
+            let esign: string | undefined;
+
+            // If backend sends JSON details, convert to readable text and extract signature id when present
+            if (details && details.trim().startsWith('{')) {
+              try {
+                const parsed = JSON.parse(details) as Record<string, unknown>;
+                if (typeof parsed.message === 'string') {
+                  details = parsed.message;
+                } else {
+                  const parts = Object.entries(parsed)
+                    .filter(([, value]) => value !== null && value !== undefined && value !== '')
+                    .map(
+                      ([key, value]) =>
+                        `${key.charAt(0).toUpperCase() + key.slice(1)}: ${String(value)}`
+                    );
+                  if (parts.length > 0) {
+                    details = parts.join(' | ');
+                  }
+                }
+                if (typeof (parsed as any).signatureId === 'string') {
+                  esign = (parsed as any).signatureId;
+                }
+              } catch {
+                // Leave raw details when JSON parsing fails
+              }
+            }
+
+            // For key actions that require electronic signatures, synthesize a signature ID
+            if (!esign && requiresSignature(e.action)) {
+              const sig = generateElectronicSignature(
+                performedBy,
+                (role as UserRole) || 'admin',
+                e.action,
+                e.requestId || reportMatch?.requestId || requestId
+              );
+              esign = sig.signatureId;
+            }
+
+            return {
+              id: e.id,
+              action: (e.action || '')
+                .replace(/_/g, ' ')
+                .replace(/\b\w/g, (l) => l.toUpperCase()),
+              performedBy,
+              role,
+              timestamp: e.timestamp,
+              department,
+              details,
+              esign,
+              status: 'completed',
+            };
+          });
           setApiActivities(mapped);
           return;
         }
@@ -95,21 +163,65 @@ export function ActivityLogDetail({ requestId, onBack, reports = [] }: ActivityL
           limit: 200,
         });
         if (!isMounted) return;
-        const mapped: ActivityLogEntry[] = entries.map((e) => ({
-          id: e.id,
-          action: e.action.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()),
-          performedBy: e.user || 'System',
-          role: e.userRole || 'System',
-          timestamp: e.timestamp,
-          department:
+        const mapped: ActivityLogEntry[] = entries.map((e) => {
+          const performedBy = e.user || 'System';
+          const role = e.userRole || 'System';
+          const department = resolveDepartmentName(
             e.department ||
-            reportMatch?.department ||
-            reportMatch?.departmentName ||
-            'General',
-          details: e.details || '',
-          esign: undefined,
-          status: 'completed',
-        }));
+              reportMatch?.department ||
+              reportMatch?.departmentName ||
+              'General'
+          );
+
+          let details = e.details || '';
+          let esign: string | undefined;
+
+          if (details && details.trim().startsWith('{')) {
+            try {
+              const parsed = JSON.parse(details) as Record<string, unknown>;
+              if (typeof parsed.message === 'string') {
+                details = parsed.message;
+              } else {
+                const parts = Object.entries(parsed)
+                  .filter(([, value]) => value !== null && value !== undefined && value !== '')
+                  .map(
+                    ([key, value]) =>
+                      `${key.charAt(0).toUpperCase() + key.slice(1)}: ${String(value)}`
+                  );
+                if (parts.length > 0) {
+                  details = parts.join(' | ');
+                }
+              }
+              if (typeof (parsed as any).signatureId === 'string') {
+                esign = (parsed as any).signatureId;
+              }
+            } catch {
+              // Ignore JSON parse errors and keep raw details
+            }
+          }
+
+          if (!esign && requiresSignature(e.action)) {
+            const sig = generateElectronicSignature(
+              performedBy,
+              (role as UserRole) || 'admin',
+              e.action,
+              e.requestId || reportMatch?.requestId || requestId
+            );
+            esign = sig.signatureId;
+          }
+
+          return {
+            id: e.id,
+            action: e.action.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()),
+            performedBy,
+            role,
+            timestamp: e.timestamp,
+            department,
+            details,
+            esign,
+            status: 'completed',
+          };
+        });
         setApiActivities(mapped);
       } catch (err: any) {
         if (!isMounted) return;
@@ -138,7 +250,7 @@ export function ActivityLogDetail({ requestId, onBack, reports = [] }: ActivityL
   // Generate activities from report data
   const generateActivitiesFromReport = (report: ReportData): ActivityLogEntry[] => {
     const activities: ActivityLogEntry[] = [];
-    const department = report.assignedTo || report.department || 'General';
+    const department = resolveDepartmentName(report.department || report.assignedTo || 'General');
     const fileName = report.fileName || 'Unknown Document';
     const uploadDate = report.uploadDate || new Date().toLocaleDateString();
     const lastModified = report.lastModified || uploadDate;
@@ -342,7 +454,7 @@ export function ActivityLogDetail({ requestId, onBack, reports = [] }: ActivityL
       requestId: currentReport.requestId || `REQ-${currentReport.id}`,
       fileName: currentReport.fileName || 'Unknown Document',
       documentType: currentReport.documentType || 'Approval Request',
-      department: currentReport.assignedTo || currentReport.department || 'General',
+      department: resolveDepartmentName(currentReport.department || currentReport.assignedTo || 'General'),
       status: mapReportStatusToActivityStatus(currentReport.status),
       submittedDate: currentReport.uploadDate || new Date().toLocaleDateString(),
       lastUpdated:
@@ -394,7 +506,14 @@ export function ActivityLogDetail({ requestId, onBack, reports = [] }: ActivityL
       rejected: 'bg-gradient-to-r from-red-500 to-rose-600 text-white shadow-md',
       returned: 'bg-gradient-to-r from-purple-500 to-violet-600 text-white shadow-md',
     };
-    return <Badge className={styles[status]}>{status.replace('-', ' ').toUpperCase()}</Badge>;
+    const labelMap: Record<RequestActivityLog['status'], string> = {
+      pending: 'Pending',
+      'in-review': 'In Review',
+      approved: 'Approved',
+      rejected: 'Rejected',
+      returned: 'Returned For Revision',
+    };
+    return <Badge className={styles[status]}>{labelMap[status]}</Badge>;
   };
 
   const getActivityStatusIcon = (status: ActivityLogEntry['status']) => {

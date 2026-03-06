@@ -86,7 +86,15 @@ import { getTemplateFileBlob, importDocxToSfdt } from './api/templates';
 export default function App() {
   const [showHomePage, setShowHomePage] = useState(false);
   const [isSubmissionModalOpen, setIsSubmissionModalOpen] = useState(false);
-  const [pendingSubmissionData, setPendingSubmissionData] = useState<{ id: string; title: string } | null>(null);
+  const [pendingSubmissionData, setPendingSubmissionData] = useState<{
+    id: string;
+    title: string;
+    reviewSequence?: string[];
+    priority?: string;
+    submissionComments?: string;
+    readOnly?: boolean;
+    status?: string;
+  } | null>(null);
   const [showTicketFlowLogin, setShowTicketFlowLogin] = useState(false);
   const [ticketFlowLoginModule, setTicketFlowLoginModule] = useState<'ticketflow' | 'dms' | 'qms'>('ticketflow');
   const [isTicketFlowSignedIn, setIsTicketFlowSignedIn] = useState(false);
@@ -135,6 +143,9 @@ export default function App() {
     templateId: string;
     sections: FormSection[];
     fileName: string;
+    /** Backend department_id used for this template upload (from /api/departments) */
+    departmentId?: string | null;
+    /** Human-readable / slug department label (e.g. from AI workflow detection) */
     department: string;
     fileSize: string;
     uploadDate: string;
@@ -152,6 +163,9 @@ export default function App() {
     fileType: string;
   } | null>(null);
   const [departments, setDepartments] = useState<DepartmentData[]>([]);
+  const [pageEventsByRequest, setPageEventsByRequest] = useState<
+    Record<string, { pageNumber: number; eventType: 'edit' }[]>
+  >({});
   
   // Restore session from stored token
   useEffect(() => {
@@ -213,7 +227,8 @@ export default function App() {
           assignedTo: r.assignedTo || '',
           assignedToName: r.assignedToName ?? undefined,
           department: r.departmentName || undefined,
-          status: (r.status === 'draft' ? 'pending' : r.status) as ReportData['status'],
+          // Preserve backend status (including 'draft') so UI can distinguish it
+          status: r.status as ReportData['status'],
           lastModified: r.updatedAt || r.createdAt,
           fileSize: r.fileSize ?? '',
           documentType: 'Request',
@@ -240,6 +255,21 @@ export default function App() {
         setAuditLogs(list || []);
       })
       .catch(() => {});
+  };
+
+  const recordPageEdit = (requestId: string | null, pageIndex: number) => {
+    if (!requestId || pageIndex == null || pageIndex < 0) return;
+    const pageNumber = pageIndex + 1;
+    setPageEventsByRequest((prev) => {
+      const existing = prev[requestId] || [];
+      if (existing.some((e) => e.pageNumber === pageNumber && e.eventType === 'edit')) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [requestId]: [...existing, { pageNumber, eventType: 'edit' }],
+      };
+    });
   };
 
   const currentUser = authUser
@@ -493,6 +523,15 @@ export default function App() {
     let draftSfdt: string | null = null;
     try {
       const res = await getFormData(reportId);
+      const existingPageEvents = (res as any)?.pageEvents as
+        | { pageNumber: number; eventType: string }[]
+        | undefined;
+      if (existingPageEvents && existingPageEvents.length > 0) {
+        setPageEventsByRequest((prev) => ({
+          ...prev,
+          [reportId]: existingPageEvents,
+        }));
+      }
       const formDataObj = res?.data;
       const hasData = formDataObj != null && (typeof formDataObj === 'object' || typeof formDataObj === 'string');
       if (hasData) {
@@ -605,9 +644,14 @@ export default function App() {
     setShowHomePage(true);
   };
 
-  const handleViewChange = (view: ViewType) => {
+  const handleViewChange = (view: ViewType, options?: { requestId?: string }) => {
     setPreviousView(currentView);
     setCurrentView(view);
+
+    // When navigating directly to Activity Log Detail, allow callers to specify the request identifier
+    if (view === 'activity-log-detail' && options?.requestId) {
+      setSelectedActivityLogRequestId(options.requestId);
+    }
 
     // Load API data when needed for a view
     const viewsNeedingTemplates: ViewType[] = [
@@ -685,17 +729,20 @@ export default function App() {
 
       const workflowResult = generateWorkflowFromSections(file.name, parsedSections, fileType);
 
-      let departmentId: string | null = null;
-      try {
-        const departments = await getDepartments();
-        const primary = workflowResult.primaryDepartment ?? '';
-        const match = departments.find(
-          (d) =>
-            d.name.toLowerCase().replace(/\s+&\s+/g, ' ').replace(/\s+/g, '_') === primary ||
-            primary === d.name.toLowerCase().replace(/\s+/g, '_')
-        );
-        if (match) departmentId = match.id;
-      } catch (_) {}
+      // Prefer explicit department selected by user in AI Conversion upload UI.
+      let departmentId: string | null = selectedDepartment || null;
+      if (!departmentId) {
+        try {
+          const departments = await getDepartments();
+          const primary = workflowResult.primaryDepartment ?? '';
+          const match = departments.find(
+            (d) =>
+              d.name.toLowerCase().replace(/\s+&\s+/g, ' ').replace(/\s+/g, '_') === primary ||
+              primary === d.name.toLowerCase().replace(/\s+/g, '_')
+          );
+          if (match) departmentId = match.id;
+        } catch (_) {}
+      }
 
       toast.info(`Uploading ${file.name}...`, { description: 'Saving to server.' });
       const uploaded = await uploadTemplate(file, departmentId);
@@ -710,11 +757,14 @@ export default function App() {
           templateId,
           sections: parsedSections,
           fileName: file.name,
+          departmentId,
           department: workflowResult.primaryDepartment,
           fileSize: fileSizeFormatted,
           uploadDate: uploadDateFormatted,
           fileBlob: file,
         });
+        // Clear department selection after a successful upload so the next upload starts blank
+        setSelectedDepartment('');
         setCurrentView('ai-conversion-preview');
         toast.success('AI Analysis Complete!', {
           description: `Document "${file.name}" analyzed. Showing conversion preview.`,
@@ -730,6 +780,8 @@ export default function App() {
           uploadDate: uploadDateFormatted,
           fileType,
         });
+        // Clear department selection after a successful upload so the next upload starts blank
+        setSelectedDepartment('');
         setCurrentView('workflow-approval');
         toast.success('AI Analysis Complete!', {
           description: `Document "${file.name}" analyzed. Please review the generated workflow.`,
@@ -787,8 +839,14 @@ export default function App() {
     const departmentSlug = updatedDepartment || pendingConversion.department;
 
     try {
-      let departmentId: string | null = null;
-      if (departmentSlug) {
+      // Prefer the exact department_id used when the template was uploaded.
+      let departmentId: string | null = pendingConversion.departmentId ?? null;
+      // Next preference: any current explicit selection in the UI.
+      if (!departmentId && selectedDepartment) {
+        departmentId = selectedDepartment;
+      }
+      // Fallback: derive from slug / workflow primary department if user didn't pick one.
+      if (!departmentId && departmentSlug) {
         try {
           const deps = await getDepartments();
           const match = deps.find(
@@ -824,7 +882,8 @@ export default function App() {
         uploadDate: typeof req.createdAt === 'string' ? req.createdAt.split('T')[0] : new Date().toISOString().split('T')[0],
         assignedTo: req.assignedTo || '',
         department: req.departmentName || departmentSlug,
-        status: (req.status === 'draft' ? 'pending' : req.status) as ReportData['status'],
+        // Preserve backend status (including 'draft') on newly created requests
+        status: (req.status as ReportData['status']) || 'draft',
         lastModified: req.updatedAt || req.createdAt,
         fileSize: req.fileSize ?? pendingConversion.fileSize ?? '',
         documentType: 'Request',
@@ -885,6 +944,7 @@ export default function App() {
   const handleConversionCancel = () => {
     setPendingConversion(null);
     setSelectedFiles(null);
+    setSelectedDepartment('');
     
     // Return to the appropriate view based on role
     if (loginData.role === 'admin' || loginData.role === 'manager' || loginData.role === 'preparator') {
@@ -896,6 +956,7 @@ export default function App() {
 
   const handleClearSelection = () => {
     setSelectedFiles(null);
+    setSelectedDepartment('');
   };
 
   const handleViewForm = async (requestIdOrReportId: string) => {
@@ -1051,11 +1112,22 @@ export default function App() {
       try {
         const res = await getFormData(report.id);
         const formDataObj = (res as Record<string, unknown>)?.data ?? res;
-        const withFormData = { ...report, formData: formDataObj as FormData };
-        // Keep reports state in sync so future downloads also see the latest _sfdt
-        setReports((prev) =>
-          prev.map((r) => (r.id === report.id ? (withFormData as ReportData) : r))
-        );
+
+        // Map metadata from form-data API into report for Document Preview:
+        // - Prepared By  <= preparatorName
+        // - Site Location / Facility <= departmentName
+        // - Last Modified <= updatedAt
+        const withFormData: ReportData = {
+          ...report,
+          formData: formDataObj as FormData,
+          fromUser: (res as any).preparatorName ?? report.fromUser,
+          site: (res as any).departmentName ?? report.site,
+          lastModified: (res as any).updatedAt || report.lastModified,
+          department: (res as any).departmentName ?? report.department,
+        };
+
+        // Keep reports state in sync so future previews/downloads see the latest data
+        setReports((prev) => prev.map((r) => (r.id === report.id ? withFormData : r)));
         setSelectedReportForPreview(withFormData);
       } catch (_) {
         setSelectedReportForPreview(report);
@@ -1152,21 +1224,47 @@ export default function App() {
     }
   };
 
-  const handlePublishDocument = (reportId: string) => {
-    const report = reports.find(r => r.id === reportId);
-    if (report) {
-      setReports(prev => prev.map(r => r.id === reportId ? { 
-        ...r, 
+  const handlePublishDocument = async (reportId: string) => {
+    const report = reports.find((r) => r.id === reportId);
+    if (!report) {
+      toast.error('Document not found', { description: 'Unable to publish this document.' });
+      return;
+    }
+
+    try {
+      // Call backend status update API so publish is persisted
+      await updateRequest(reportId, {
         status: 'published',
-        publishedDate: new Date().toISOString(),
-        publishedBy: loginData.username
-      } : r));
-      toast.success('Document Published');
-      
-      // After publish document should moved into document effectiveness module
+      });
+
+      const nowIso = new Date().toISOString();
+
+      // Keep local state in sync with backend
+      setReports((prev) =>
+        prev.map((r) =>
+          r.id === reportId
+            ? {
+                ...r,
+                status: 'published',
+                publishedDate: nowIso,
+                publishedBy: loginData.username,
+                lastModified: nowIso,
+              }
+            : r
+        )
+      );
+
+      toast.success('Document Published', {
+        description: 'The document has been marked as published and moved to effectiveness tracking.',
+      });
+
+      // After publish document should move into Document Effectiveness module
       setTimeout(() => {
         setCurrentView('document-effectiveness');
       }, 1000);
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || err?.message || 'Failed to publish document';
+      toast.error('Publish failed', { description: msg });
     }
   };
 
@@ -1214,9 +1312,11 @@ export default function App() {
     try {
       const template = templates.find((t) => t.id === report.templateId);
       const base = (currentFormData || {}) as Record<string, unknown>;
+      const pageEvents = pageEventsByRequest[currentDocumentId];
       await putFormData(currentDocumentId, {
         data: { ...base, _sfdt: sfdt },
         formSectionsSnapshot: template?.parsedSections ?? undefined,
+        pageEvents,
       });
       // Also touch the request record so backend updates metadata (e.g. updatedAt/status)
       await updateRequest(currentDocumentId, {
@@ -1249,9 +1349,11 @@ export default function App() {
     if (report?.templateId && currentDocumentId && currentFormData) {
       try {
         const template = templates.find((t) => t.id === report.templateId);
+        const pageEvents = pageEventsByRequest[currentDocumentId];
         await putFormData(currentDocumentId, {
           data: currentFormData as Record<string, unknown>,
           formSectionsSnapshot: template?.parsedSections ?? undefined,
+          pageEvents,
         });
         // Ensure corresponding request record is patched when saving from Raise Request flow
         await updateRequest(currentDocumentId, {
@@ -1282,9 +1384,11 @@ export default function App() {
       try {
         const payload = (currentFormData || {}) as Record<string, unknown>;
         if (latestSfdt !== undefined) payload._sfdt = latestSfdt;
+        const pageEvents = pageEventsByRequest[currentDocumentId];
         await putFormData(currentDocumentId, {
           data: payload,
           formSectionsSnapshot: templates.find((t) => t.id === report.templateId)?.parsedSections ?? undefined,
+          pageEvents,
         });
         
         // Update the reports state with the new SFDT for consistency
@@ -1296,7 +1400,17 @@ export default function App() {
           ));
         }
         
-        setPendingSubmissionData({ id: currentDocumentId, title: docTitle });
+        const reportForSubmit = reports.find((r) => r.id === currentDocumentId);
+        const hasPreselected = (reportForSubmit?.reviewSequence?.length ?? 0) > 0;
+        setPendingSubmissionData({
+          id: currentDocumentId,
+          title: docTitle,
+          reviewSequence: reportForSubmit?.reviewSequence,
+          priority: reportForSubmit?.priority,
+          submissionComments: reportForSubmit?.submissionComments,
+          readOnly: hasPreselected,
+          status: reportForSubmit?.status,
+        });
         setIsSubmissionModalOpen(true);
       } catch (err: any) {
         toast.error(err.response?.data?.error || 'Failed to save draft');
@@ -1306,7 +1420,17 @@ export default function App() {
 
     saveFormData();
     if (currentDocumentId) {
-      setPendingSubmissionData({ id: currentDocumentId, title: docTitle });
+      const reportForSubmit = reports.find((r) => r.id === currentDocumentId);
+      const hasPreselected = (reportForSubmit?.reviewSequence?.length ?? 0) > 0;
+      setPendingSubmissionData({
+        id: currentDocumentId,
+        title: docTitle,
+        reviewSequence: reportForSubmit?.reviewSequence,
+        priority: reportForSubmit?.priority,
+        submissionComments: reportForSubmit?.submissionComments,
+        readOnly: hasPreselected,
+        status: reportForSubmit?.status,
+      });
       setIsSubmissionModalOpen(true);
     }
   };
@@ -1319,9 +1443,10 @@ export default function App() {
 
     // Handle Reviewer specialized actions
     if (action && action !== 'submit') {
-      // Map UI actions to backend workflow actions
-      const workflowActionMap: Record<string, 'approve' | 'reject' | 'request_revision'> = {
-        reviewed: 'approve',
+      // Map UI actions to backend workflow actions (reviewed vs approve by role)
+      const workflowActionMap: Record<string, 'reviewed' | 'approve' | 'reject' | 'request_revision'> = {
+        reviewed: 'reviewed',
+        approve: 'approve',
         revision: 'request_revision',
         rejected: 'reject',
       };
@@ -1342,9 +1467,10 @@ export default function App() {
       }
 
       const statusMap: Record<string, ReportData['status']> = {
-        'reviewed': (loginData.role === 'approver' || loginData.role === 'manager_approver') ? 'approved' : 'reviewed',
-        'revision': 'needs-revision',
-        'rejected': 'rejected'
+        reviewed: 'reviewed',
+        approve: 'approved',
+        revision: 'needs-revision',
+        rejected: 'rejected',
       };
       
       const newStatus = statusMap[action];
@@ -1352,9 +1478,13 @@ export default function App() {
         updateReportStatus(id, newStatus);
         
         // Log activity
-        const actionLabel = action === 'reviewed' 
-          ? ((loginData.role === 'approver' || loginData.role === 'manager_approver') ? 'Approved' : 'Reviewed')
-          : action === 'revision' ? 'Sent for Revision' : 'Rejected';
+        const actionLabel = action === 'reviewed'
+          ? 'Reviewed'
+          : action === 'approve'
+          ? 'Approved'
+          : action === 'revision'
+          ? 'Sent for Revision'
+          : 'Rejected';
           
         toast.success(`Request ${actionLabel} successfully`);
         
@@ -1643,6 +1773,7 @@ export default function App() {
           <PreparatorDocumentLibrary
             reports={libraryReports}
             onViewForm={handleViewForm}
+            onEditForm={handleEditForm}
             onPreviewDocument={handlePreviewDocument}
             onDeleteReport={handleDeleteReport}
             onDownloadDocument={handleDownloadDocument}
@@ -1691,6 +1822,8 @@ export default function App() {
         onClearSelection={handleClearSelection}
         uploadInProgress={uploadInProgress}
         departments={departments}
+        selectedDepartmentId={selectedDepartment || null}
+        onDepartmentChange={(id) => setSelectedDepartment(id ?? '')}
       />
     </div>
   );
@@ -1892,6 +2025,7 @@ export default function App() {
                   }
                 }}
                 reports={reports}
+                departments={departments}
               />
             </div>
           )}
@@ -2058,7 +2192,12 @@ export default function App() {
             if (!report) return <div className="p-8 text-center text-slate-600 flex-1">Document not found</div>;
             const templateId = template?.id ?? report.templateId ?? report.id;
             const fileName = template?.fileName ?? report.fileName ?? 'document.docx';
-            const department = template?.department ?? report.department ?? 'Engineering';
+            // Prefer readable department name from global departments list; fall back to raw value, then default.
+            const rawDepartmentId = template?.department ?? report.department;
+            const department =
+              (rawDepartmentId && departments.find((d) => d.id === rawDepartmentId)?.name) ||
+              rawDepartmentId ||
+              'Engineering';
             const initialSfdt = loadedSfdtRef.current ?? loadedSfdtForEditor ?? (currentFormData as Record<string, unknown>)?._sfdt;
             return (
               <div className="flex-1 h-full overflow-hidden" key={currentDocumentId}>
@@ -2080,6 +2219,9 @@ export default function App() {
                     handleViewChange('activity-log-detail');
                   }}
                   initialSfdt={typeof initialSfdt === 'string' ? initialSfdt : undefined}
+                  onPageUpdated={(pageIndex) => {
+                    recordPageEdit(currentDocumentId, pageIndex);
+                  }}
                 />
               </div>
             );
@@ -2113,6 +2255,7 @@ export default function App() {
                   isFixedForm={true}
                   currentFormData={currentFormData}
                   updateFormData={updateFormData}
+                  onPageUpdated={(pageIndex) => recordPageEdit(currentDocumentId, pageIndex)}
                 />
               </div>
             );
@@ -2139,6 +2282,11 @@ export default function App() {
         onConfirm={handleFinalSubmit}
         documentTitle={pendingSubmissionData?.title || "Request Document"}
         userRole={loginData.role}
+        initialReviewerIds={pendingSubmissionData?.reviewSequence}
+        initialPriority={pendingSubmissionData?.priority}
+        initialComments={pendingSubmissionData?.submissionComments}
+        readOnly={pendingSubmissionData?.readOnly}
+        documentStatus={pendingSubmissionData?.status}
       />
       
       <Toaster />

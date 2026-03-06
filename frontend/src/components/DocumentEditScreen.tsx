@@ -88,6 +88,8 @@ interface DocumentEditScreenProps {
   sections?: FormSection[];
   onDynamicSave?: (formData: Record<string, any>) => void;
   initialData?: Record<string, any>;
+  /** Called when user edits content in Syncfusion editor; receives 0-based page index */
+  onPageUpdated?: (pageIndex: number) => void;
 }
 
 export const DocumentEditScreen = ({
@@ -113,7 +115,8 @@ export const DocumentEditScreen = ({
   isDynamicForm,
   sections,
   onDynamicSave,
-  initialData
+  initialData,
+  onPageUpdated,
 }: DocumentEditScreenProps) => {
   // Syncfusion editor state
   const [sfdt, setSfdt] = useState(null);
@@ -133,6 +136,8 @@ export const DocumentEditScreen = ({
   
   // Use Syncfusion editor only when explicitly enabled by props
   const isSyncfusionMode = !!useSyncfusionEditor;
+  const normalizedStatus = (status || '').toLowerCase();
+  const isPublished = normalizedStatus === 'published';
   const effectiveTemplateId = templateId;
   const totalPages = pageCount;
 
@@ -203,7 +208,20 @@ export const DocumentEditScreen = ({
   const handleZoomIn = () => setZoom((prev) => Math.min(prev + 10, 200));
   const handleZoomOut = () => setZoom((prev) => Math.max(prev - 10, 50));
   const handlePrint = () => window.print();
-  
+
+  // Apply zoom to Syncfusion document editor when zoom state changes
+  useEffect(() => {
+    if (!isSyncfusionMode) return;
+    const editor = containerRef.current?.documentEditor;
+    if (!editor) return;
+    const factor = Math.max(0.1, Math.min(5, zoom / 100));
+    if (typeof editor.zoomFactor !== 'undefined') {
+      editor.zoomFactor = factor;
+    } else if (typeof editor.setZoomFactor === 'function') {
+      editor.setZoomFactor(factor);
+    }
+  }, [zoom, isSyncfusionMode]);
+
   // Syncfusion handlers
   const handleSyncfusionSave = () => {
     const editor = containerRef.current?.documentEditor;
@@ -332,6 +350,7 @@ export const DocumentEditScreen = ({
 
           {!isReviewerRole && (
             <>
+              {/* Reset button commented out for now
               <Button 
                 variant="outline" 
                 size="sm" 
@@ -341,30 +360,39 @@ export const DocumentEditScreen = ({
                 <RotateCcw className="h-4 w-4" />
                 Reset
               </Button>
+              */}
 
               <Button 
                 variant="outline" 
                 size="sm" 
-                onClick={handleSyncfusionSave}
-                className="border-none shadow-lg transform hover:-translate-y-0.5 active:translate-y-0 transition-all font-bold hidden sm:flex gap-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-blue-200"
+                onClick={isPublished ? undefined : handleSyncfusionSave}
+                disabled={isPublished}
+                className={`border-none shadow-lg transform active:translate-y-0 transition-all font-bold hidden sm:flex gap-2 ${
+                  isPublished
+                    ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-blue-200 hover:-translate-y-0.5'
+                }`}
               >
                 <Save className="h-4 w-4" />
-                Save Draft
+                {isPublished ? 'Read Only' : 'Save Draft'}
               </Button>
             </>
           )}
           
           <Button 
             size="sm" 
-            onClick={handleSyncfusionSubmit}
+            onClick={isPublished ? undefined : handleSyncfusionSubmit}
+            disabled={isPublished}
             className={`border-none shadow-lg transform hover:-translate-y-0.5 active:translate-y-0 transition-all font-bold gap-2 ${
-              isReviewerRole
-                ? 'bg-gradient-to-r from-blue-600 to-indigo-700 text-white shadow-blue-300 px-8'
-                : 'bg-gradient-to-r from-blue-600 to-indigo-700 text-white shadow-blue-300'
+              isPublished
+                ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                : isReviewerRole
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-700 text-white shadow-blue-300 px-8'
+                  : 'bg-gradient-to-r from-blue-600 to-indigo-700 text-white shadow-blue-300'
             }`}
           >
             <Send className="h-4 w-4" />
-            Submit
+            {isPublished ? 'Published' : 'Submit'}
           </Button>
         </div>
       </div>
@@ -460,7 +488,43 @@ export const DocumentEditScreen = ({
                   if (c?.documentEditor && sfdt) {
                     // Open the document
                     c.documentEditor.open(sfdt);
-                    (c.documentEditor as any).zoomFactor = 1.0;
+                    const editor = c.documentEditor as any;
+                    editor.zoomFactor = 1.0;
+
+                    // Make the document strictly read-only when published
+                    if (isPublished) {
+                      try {
+                        editor.isReadOnly = true;
+                        if (typeof editor.enableReadOnlyMode === 'function') {
+                          editor.enableReadOnlyMode(true);
+                        }
+                      } catch {
+                        // Ignore errors; read-only is a UX safeguard, main guard is disabled actions
+                      }
+                    }
+
+                    // Log which page was updated whenever content changes
+                    const prevContentChange = editor.contentChange;
+                    editor.contentChange = (args: any) => {
+                      if (typeof prevContentChange === 'function') {
+                        prevContentChange(args);
+                      }
+                      const pageNum =
+                        editor.selection?.startPage ??
+                        editor.selection?.endPage ??
+                        1;
+                      const pageIndex = Math.max(
+                        0,
+                        (typeof pageNum === 'number' ? pageNum : 1) - 1
+                      );
+                      console.log(
+                        '[DocumentEditScreen] content updated on page',
+                        pageIndex + 1
+                      );
+                      if (onPageUpdated) {
+                        onPageUpdated(pageIndex);
+                      }
+                    };
                     
                     // Update header table and dynamic footer signatories after document is loaded
                     setTimeout(() => {
@@ -476,7 +540,6 @@ export const DocumentEditScreen = ({
                       try {
                         const rawRole = userRole || '';
                         const normalizedRole = rawRole.toLowerCase();
-                        const normalizedStatus = (status || '').toLowerCase();
                         // Prefer a human-friendly label for the signatory name:
                         // 1) use the role label from login (e.g. "Reviewer 1")
                         // 2) fall back to username (e.g. "reviewer1")

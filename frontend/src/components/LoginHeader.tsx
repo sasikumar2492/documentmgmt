@@ -153,7 +153,7 @@ export const LoginHeader: React.FC<LoginHeaderProps> = ({
             
             {/* Right side - Actions and User */}
             <div className="flex items-center space-x-2">
-              {/* Chat Button */}
+              {/* Chat Button temporarily disabled
               <Button 
                 variant="ghost" 
                 size="sm" 
@@ -171,6 +171,7 @@ export const LoginHeader: React.FC<LoginHeaderProps> = ({
                   3
                 </span>
               </Button>
+              */}
               
               {/* Notification Bell - Just the button */}
               <Button 
@@ -280,7 +281,7 @@ export const LoginHeader: React.FC<LoginHeaderProps> = ({
         }}
       />
 
-      {/* Chat Panel */}
+      {/* Chat Panel temporarily disabled
       <ChatPanel 
         isOpen={onChatToggle ? isChatOpen : localIsChatOpen} 
         onClose={() => {
@@ -292,6 +293,7 @@ export const LoginHeader: React.FC<LoginHeaderProps> = ({
         }}
         isSidebarCollapsed={isSidebarCollapsed}
       />
+      */}
 
       {/* User Profile Menu - Rendered as Overlay */}
       {isUserMenuOpen && (

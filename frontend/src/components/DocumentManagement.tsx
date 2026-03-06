@@ -31,6 +31,10 @@ interface DocumentManagementProps {
   uploadInProgress?: boolean;
   /** Departments from /api/departments */
   departments?: { id: string; name: string }[];
+  /** Currently selected department ID for upload (from /api/departments) */
+  selectedDepartmentId?: string | null;
+  /** Called when user changes department selection for upload */
+  onDepartmentChange?: (departmentId: string | null) => void;
 }
 
 export const DocumentManagement: React.FC<DocumentManagementProps> = ({
@@ -43,7 +47,9 @@ export const DocumentManagement: React.FC<DocumentManagementProps> = ({
   onUploadSubmit,
   onClearSelection,
   uploadInProgress = false,
-  departments = []
+  departments = [],
+  selectedDepartmentId,
+  onDepartmentChange,
 }) => {
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateData | null>(null);
   const [selectedReport, setSelectedReport] = useState<ReportData | null>(null);
@@ -291,7 +297,10 @@ export const DocumentManagement: React.FC<DocumentManagementProps> = ({
                 <Building2 className="h-4 w-4 text-slate-600" />
                 Select Department <span className="text-red-500">*</span>
               </label>
-              <Select>
+              <Select
+                value={selectedDepartmentId ?? undefined}
+                onValueChange={(value) => onDepartmentChange?.(value || null)}
+              >
                 <SelectTrigger className="w-full h-12 bg-white border-slate-200 hover:border-blue-400 focus:ring-2 focus:ring-blue-500/20 text-base rounded-xl font-medium transition-all">
                   <SelectValue placeholder="Choose department..." />
                 </SelectTrigger>

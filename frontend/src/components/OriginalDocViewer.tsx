@@ -195,6 +195,8 @@ interface OriginalDocViewerProps {
   /** Optional current user info for dynamic footer filling in preview. */
   currentUserName?: string;
   currentUserRole?: string;
+  /** Optional zoom percentage (10–200). When provided, applied to the Syncfusion document editor (e.g. from DocumentPreviewScreen toolbar). */
+  zoom?: number;
 }
 
 function blobToBase64(blob: Blob): Promise<string> {
@@ -222,6 +224,7 @@ export const OriginalDocViewer: React.FC<OriginalDocViewerProps> = ({
   status,
   currentUserName,
   currentUserRole,
+  zoom: zoomProp,
 }) => {
   const [documentPath, setDocumentPath] = useState<string | null>(null);
   const [wordBlob, setWordBlob] = useState<Blob | null>(null);
@@ -308,6 +311,20 @@ export const OriginalDocViewer: React.FC<OriginalDocViewerProps> = ({
       });
     return () => { cancelled = true; };
   }, [fileType, wordBlob, fileName, initialSfdt]);
+
+  // Apply zoom to Syncfusion document editor when zoom prop changes (e.g. from DocumentPreviewScreen toolbar)
+  useEffect(() => {
+    if (zoomProp == null || fileType !== 'word') return;
+    const editor = documentEditorContainerRef.current?.documentEditor as any;
+    if (!editor) return;
+    const factor = Math.max(0.1, Math.min(5, zoomProp / 100));
+    if (typeof editor.zoomFactor !== 'undefined') {
+      editor.zoomFactor = factor;
+    } else if (typeof editor.setZoomFactor === 'function') {
+      editor.setZoomFactor(factor);
+    }
+  }, [zoomProp, fileType]);
+
   // Hide right properties panel and maximize editor for this page only
   useEffect(() => {
     const style = document.createElement('style');

@@ -62,6 +62,8 @@ export interface SyncfusionRequestEditorProps {
   initialSfdt?: string | null;
   /** Download current document as Word; called with current SFDT so parent can export and trigger download */
   onDownload?: (sfdt: string) => void | Promise<void>;
+  /** Called when the user edits content; receives the 0-based page index that was updated (Syncfusion contentChange + getCurrentPageNumber) */
+  onPageUpdated?: (pageIndex: number) => void;
 }
 
 /**
@@ -210,6 +212,7 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
   onViewActivity,
   initialSfdt,
   onDownload,
+  onPageUpdated,
 }) => {
   const [sfdt, setSfdt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -219,6 +222,8 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
   const [activePageIndex, setActivePageIndex] = useState(0);
   const containerRef = useRef<DocumentEditorContainerComponent>(null);
   const sfdtRef = useRef<string | null>(null);
+  const onPageUpdatedRef = useRef(onPageUpdated);
+  onPageUpdatedRef.current = onPageUpdated;
 
   useEffect(() => {
     if (initialSfdt && initialSfdt.length > 0) {
@@ -255,6 +260,18 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
       clearTimeout(t2);
     };
   }, [sfdt]);
+
+  // Apply zoom to Syncfusion document editor when zoom state changes
+  useEffect(() => {
+    const editor = containerRef.current?.documentEditor as any;
+    if (!editor) return;
+    const factor = Math.max(0.1, Math.min(5, zoom / 100));
+    if (typeof editor.zoomFactor !== 'undefined') {
+      editor.zoomFactor = factor;
+    } else if (typeof editor.setZoomFactor === 'function') {
+      editor.setZoomFactor(factor);
+    }
+  }, [zoom]);
 
   // Inject CSS to ensure proper layout and prevent overflow
   useEffect(() => {
@@ -502,6 +519,7 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
             </Button>
           </div>
 
+          {/* Reset button commented out for now
           <Button
             variant="outline"
             size="sm"
@@ -511,6 +529,7 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
             <RotateCcw className="h-4 w-4" />
             Reset
           </Button>
+          */}
 
           <Button
             variant="outline"
@@ -577,13 +596,35 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
               const c = containerRef.current;
               const content = sfdtRef.current || sfdt;
               if (c?.documentEditor && content) {
+                const editor = c.documentEditor as any;
                 try {
                   c.documentEditor.open(content);
-                  (c.documentEditor as any).zoomFactor = 1.0;
+                  editor.zoomFactor = 1.0;
                 } catch (_) {}
 
+                // Wire contentChange so parent can know which page was updated (Syncfusion callback)
+                if (onPageUpdatedRef.current) {
+                  const prevContentChange = editor.contentChange;
+                  editor.contentChange = (args: any) => {
+                    // Preserve any existing handler from Syncfusion
+                    if (typeof prevContentChange === 'function') {
+                      prevContentChange(args);
+                    }
+                    const cb = onPageUpdatedRef.current;
+                    if (!cb) return;
+                  const pageNum =
+                    editor.selection?.startPage ??
+                    editor.selection?.endPage ??
+                    1;
+                    const pageIndex = Math.max(
+                      0,
+                      (typeof pageNum === 'number' ? pageNum : 1) - 1
+                    );
+                    cb(pageIndex);
+                  };
+                }
+
                 setTimeout(() => {
-                  const editor = c.documentEditor as any;
                   try {
                     // 1) Ensure header is visually updated when editor first opens
                     //    (in case SFDT-based update missed any layout-specific cases).

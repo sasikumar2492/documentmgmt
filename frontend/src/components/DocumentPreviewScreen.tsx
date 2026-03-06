@@ -203,6 +203,14 @@ export const DocumentPreviewScreen: React.FC<DocumentPreviewScreenProps> = ({
     document.uploadDate ||
     new Date().toISOString();
 
+  // Map sidebar metadata fields for Document Review:
+  // - Prepared By  <= preparatorName (via document.fromUser mapping in App) or uploadedBy
+  // - Site Facility <= departmentName (via document.site/department mapping in App)
+  // - Last Modified <= updatedAt (via document.lastModified mapping in App)
+  const preparedByDisplay = document.fromUser || document.uploadedBy || 'System Generated';
+  const siteFacilityDisplay = document.site || document.department || 'Corporate HQ';
+  const lastModifiedDisplay = document.lastModified || document.uploadDate;
+
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col">
       {/* Header Toolbar */}
@@ -286,7 +294,7 @@ export const DocumentPreviewScreen: React.FC<DocumentPreviewScreenProps> = ({
                 <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Prepared By</label>
                 <div className="flex items-center gap-2 text-sm font-medium">
                   <User className="h-3.5 w-3.5 text-blue-400" />
-                  {document.fromUser || document.uploadedBy || 'System Generated'}
+                  {preparedByDisplay}
                 </div>
               </div>
 
@@ -294,7 +302,7 @@ export const DocumentPreviewScreen: React.FC<DocumentPreviewScreenProps> = ({
                 <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Site Facility</label>
                 <div className="flex items-center gap-2 text-sm font-medium">
                   <Building2 className="h-3.5 w-3.5 text-blue-400" />
-                  {document.site || 'Corporate HQ'}
+                  {siteFacilityDisplay}
                 </div>
               </div>
 
@@ -302,7 +310,7 @@ export const DocumentPreviewScreen: React.FC<DocumentPreviewScreenProps> = ({
                 <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Last Modified</label>
                 <div className="flex items-center gap-2 text-sm font-medium">
                   <Clock className="h-3.5 w-3.5 text-blue-400" />
-                  {document.lastModified || document.uploadDate}
+                  {lastModifiedDisplay}
                 </div>
               </div>
             </section>
@@ -343,6 +351,7 @@ export const DocumentPreviewScreen: React.FC<DocumentPreviewScreenProps> = ({
                 status={document.status}
                 currentUserName={currentUserName}
                 currentUserRole={currentUserRole}
+                zoom={zoom}
               />
             </div>
           ) : (

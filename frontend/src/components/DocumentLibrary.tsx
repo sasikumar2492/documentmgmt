@@ -429,6 +429,9 @@ export const DocumentLibrary: React.FC<DocumentLibraryProps> = (({
     const role = userRole?.toLowerCase() || '';
     const status = (doc.status || '').toLowerCase();
 
+    // Once a document is published, no further edits are allowed for any role
+    if (status === 'published') return false;
+
     // Admin and Manager roles have full access
     if (role === 'admin' || role === 'manager') return true;
 
@@ -914,7 +917,14 @@ export const DocumentLibrary: React.FC<DocumentLibraryProps> = (({
                             <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => handlePreview(doc)}>
                               <Eye className="h-3 w-3" />
                             </Button>
-                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => onViewForm(doc.id)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!canUserEdit(doc)}
+              className={`h-6 w-6 p-0 ${!canUserEdit(doc) ? 'text-slate-300' : ''}`}
+              onClick={() => canUserEdit(doc) && onViewForm(doc.id)}
+              title={!canUserEdit(doc) ? 'Editing disabled for this document' : 'Edit'}
+            >
                               <Edit2 className="h-3 w-3" />
                             </Button>
                           </div>
@@ -1316,15 +1326,17 @@ export const DocumentLibrary: React.FC<DocumentLibraryProps> = (({
                   <Tag className="h-4 w-4" />
                   Add Tags
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleBulkDelete}
-                  className="gap-2 bg-white hover:bg-gradient-to-r hover:from-red-50 hover:to-rose-50 text-red-600 hover:text-red-700"
-                >
-                  <Trash2 className="h-4 w-4" />
-                  Delete All
-                </Button>
+                {(userRole || '').toLowerCase() === 'admin' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleBulkDelete}
+                    className="gap-2 bg-white hover:bg-gradient-to-r hover:from-red-50 hover:to-rose-50 text-red-600 hover:text-red-700"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Delete All
+                  </Button>
+                )}
               </div>
             </div>
           </CardContent>
@@ -1515,11 +1527,15 @@ export const DocumentLibrary: React.FC<DocumentLibraryProps> = (({
                                 <Share2 className="h-4 w-4" />
                                 Share
                               </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => onDeleteReport(doc.id)} className="gap-2 cursor-pointer text-red-600">
-                                <Trash2 className="h-4 w-4" />
-                                Delete
-                              </DropdownMenuItem>
+                              {(userRole || '').toLowerCase() === 'admin' && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem onClick={() => onDeleteReport(doc.id)} className="gap-2 cursor-pointer text-red-600">
+                                    <Trash2 className="h-4 w-4" />
+                                    Delete
+                                  </DropdownMenuItem>
+                                </>
+                              )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </div>
@@ -1575,9 +1591,7 @@ export const DocumentLibrary: React.FC<DocumentLibraryProps> = (({
                             )}
                           </div>
                         </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">
-                          Workflow
-                        </th>
+                        {/* Workflow column hidden as requested */}
                         <th className="px-4 py-3 text-left text-xs font-medium text-slate-600 cursor-pointer hover:text-slate-900" onClick={() => handleSort('size')}>
                           <div className="flex items-center gap-1">
                             File Size
@@ -1670,19 +1684,6 @@ export const DocumentLibrary: React.FC<DocumentLibraryProps> = (({
                             </Badge>
                           </td>
                           
-                          {/* Workflow Icon */}
-                          <td className="px-4 py-3">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleViewWorkflow(doc)}
-                              className="h-6 w-6 p-0 text-blue-600 hover:text-blue-800"
-                              title="View Workflow"
-                            >
-                              <GitBranch className="h-4 w-4" />
-                            </Button>
-                          </td>
-                          
                           {/* File Size */}
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-1 text-sm text-slate-600">
@@ -1721,7 +1722,10 @@ export const DocumentLibrary: React.FC<DocumentLibraryProps> = (({
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => onNavigate && onNavigate('activity-log-detail', { requestId: doc.requestId || doc.id })}
+                              onClick={() =>
+                                onNavigate &&
+                                onNavigate('activity-log-detail', { requestId: doc.id })
+                              }
                               className="h-6 w-6 p-0 text-purple-600 hover:text-purple-800"
                               title="View Audit Logs"
                             >
@@ -1784,8 +1788,8 @@ export const DocumentLibrary: React.FC<DocumentLibraryProps> = (({
                                 <Download className="h-4 w-4" />
                               </Button>
                               
-                              {/* Delete Icon - Hidden for Manager role */}
-                              {userRole !== 'manager' && (
+                              {/* Delete Icon - Admin only */}
+                              {(userRole || '').toLowerCase() === 'admin' && (
                                 <Button
                                   variant="ghost"
                                   size="sm"

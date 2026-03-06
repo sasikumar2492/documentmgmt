@@ -27,6 +27,11 @@ export interface FormDataApi {
   data: Record<string, unknown>;
   formSectionsSnapshot: unknown;
   updatedAt: string | null;
+  /** Optional preparator display name for this request, used for "Prepared By" in document review. */
+  preparatorName?: string | null;
+  /** Optional department display name for this request, used for "Site Location" / facility in document review. */
+  departmentName?: string | null;
+  pageEvents?: { pageNumber: number; eventType: string }[];
 }
 
 export interface RequestListParams {
@@ -119,7 +124,11 @@ export async function getRequestFileBlob(requestId: string): Promise<Blob> {
 
 export async function putFormData(
   requestId: string,
-  body: { data: Record<string, unknown>; formSectionsSnapshot?: unknown }
+  body: {
+    data: Record<string, unknown>;
+    formSectionsSnapshot?: unknown;
+    pageEvents?: { pageNumber: number; eventType: string }[];
+  }
 ): Promise<FormDataApi> {
   const { data } = await apiClient.put<FormDataApi>(`/requests/${requestId}/form-data`, body);
   return data;
@@ -141,12 +150,10 @@ export interface RequestActivityEntry {
 }
 
 export async function getRequestActivity(
-  requestId: string,
-  params?: { limit?: number }
+  requestId: string
 ): Promise<RequestActivityEntry[]> {
   const { data } = await apiClient.get<RequestActivityEntry[]>(
-    `/requests/${requestId}/activity`,
-    { params }
+    `/requests/${requestId}/activity`
   );
   return data;
 }
@@ -182,7 +189,7 @@ export async function getRequestWorkflow(
 }
 
 export interface RequestWorkflowActionBody {
-  action: 'init' | 'set_workflow' | 'approve' | 'reject' | 'request_revision' | string;
+  action: 'init' | 'set_workflow' | 'approve' | 'reviewed' | 'reject' | 'request_revision' | string;
   comment?: string;
   workflow_id?: string;
   ai_generated_definition?: unknown;

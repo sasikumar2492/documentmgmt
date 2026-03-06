@@ -38,6 +38,16 @@ interface SubmissionAssignmentModalProps {
   onConfirm: (assignment: { reviewerIds: string[]; priority: string; comments: string; action?: string }) => void;
   documentTitle: string;
   userRole?: string;
+  /** Pre-selected reviewer IDs (e.g. from API). When set, shown in dropdown and optionally read-only. */
+  initialReviewerIds?: string[];
+  /** Initial priority when re-opening with existing submission data. */
+  initialPriority?: string;
+  /** Initial submission remarks. */
+  initialComments?: string;
+  /** When true, reviewer selection is read-only (e.g. document library submit with pre-assigned reviewers). */
+  readOnly?: boolean;
+  /** Current document/request status. When admin and status is need-revision, show Confirm & Submit instead of review action buttons. */
+  documentStatus?: string;
 }
 
 /** Display shape for a reviewer in the modal (from API user). */
@@ -53,7 +63,12 @@ export const SubmissionAssignmentModal: React.FC<SubmissionAssignmentModalProps>
   onClose,
   onConfirm,
   documentTitle,
-  userRole
+  userRole,
+  initialReviewerIds,
+  initialPriority,
+  initialComments,
+  readOnly = false,
+  documentStatus,
 }) => {
   const [selectedReviewers, setSelectedReviewers] = useState<string[]>([]);
   const [priority, setPriority] = useState('medium');
@@ -61,42 +76,81 @@ export const SubmissionAssignmentModal: React.FC<SubmissionAssignmentModalProps>
   const [reviewers, setReviewers] = useState<ReviewerOption[]>([]);
   const [reviewersLoading, setReviewersLoading] = useState(false);
   const [reviewersError, setReviewersError] = useState<string | null>(null);
+  const appliedInitialRef = React.useRef(false);
 
   // Load users from backend when modal opens
   useEffect(() => {
     if (!isOpen) return;
+    appliedInitialRef.current = false;
     setReviewersLoading(true);
     setReviewersError(null);
+    setSelectedReviewers([]);
+    setPriority(initialPriority || 'medium');
+    setComments(initialComments ?? '');
     getUsers()
       .then((list) => {
-        setReviewers(
-          list.map((u) => ({
-            id: u.id,
-            name: u.fullName || u.username || '—',
-            dept: u.departmentName || '—',
-            role: u.role || 'User',
-          }))
-        );
+        const options = list.map((u) => ({
+          id: u.id,
+          name: u.fullName || u.username || '—',
+          dept: u.departmentName || '—',
+          role: u.role || 'User',
+        }));
+        setReviewers(options);
+        // Apply pre-selected reviewers from API (only IDs that exist in loaded users)
+        if (initialReviewerIds?.length) {
+          const validIds = initialReviewerIds.filter((id) =>
+            options.some((o) => o.id === id)
+          );
+          setSelectedReviewers(validIds);
+          appliedInitialRef.current = true;
+        }
       })
       .catch(() => {
         setReviewersError('Failed to load reviewers');
         setReviewers([]);
       })
       .finally(() => setReviewersLoading(false));
-  }, [isOpen]);
+  }, [isOpen]); // Intentionally not depending on initialReviewerIds so we don't re-fetch; initial values applied when open
 
-  const isReviewerOnly = userRole === 'manager_reviewer' || 
+  // When modal opens with initial data (e.g. from document library), set priority/comments and reviewers once
+  useEffect(() => {
+    if (!isOpen) return;
+    if (initialPriority) setPriority(initialPriority);
+    if (initialComments !== undefined) setComments(initialComments);
+    if (initialReviewerIds?.length && !appliedInitialRef.current && reviewers.length > 0) {
+      const validIds = initialReviewerIds.filter((id) =>
+        reviewers.some((r) => r.id === id)
+      );
+      if (validIds.length) {
+        setSelectedReviewers(validIds);
+        appliedInitialRef.current = true;
+      }
+    }
+  }, [isOpen, initialReviewerIds, initialPriority, initialComments, reviewers]);
+
+  const isReviewerOnly = userRole === 'manager_reviewer' ||
                          (userRole || '').toLowerCase().includes('reviewer');
-                         
-  const isApproverOnly = userRole === 'approver' || 
-                         userRole === 'manager_approver' || 
+
+  const isApproverOnly = userRole === 'approver' ||
+                         userRole === 'manager_approver' ||
                          (userRole || '').toLowerCase().includes('approver');
 
-  // For UI labels and colors, manager_approver is often treated as a Reviewer in this system's specific UI configuration
-  const displayAsReviewer = isReviewerOnly || userRole === 'manager_approver';
-  const displayAsApprover = isApproverOnly && userRole !== 'manager_approver';
+  const isAdmin = (userRole || '').toLowerCase().includes('admin');
 
-  const isReviewAction = isReviewerOnly || isApproverOnly;
+  const isReviewAction = isReviewerOnly || isApproverOnly || isAdmin;
+
+  const normalizedDocStatus = (documentStatus || '').toLowerCase().replace(/_/g, '-');
+  const isNeedRevisionStatus = normalizedDocStatus === 'need-revision' || normalizedDocStatus === 'needs-revision' || normalizedDocStatus === 'needs_revision';
+  const isDraftOrPendingStatus = normalizedDocStatus === 'draft' || normalizedDocStatus === 'pending';
+  const isRejectedStatus = normalizedDocStatus === 'rejected';
+  const isReviewedStatus = normalizedDocStatus === 'reviewed';
+
+  // Show Confirm & Submit only for: draft, pending, rejected, or (admin + need-revision). Otherwise show review actions.
+  const showReviewActionButtons = isReviewAction && !isDraftOrPendingStatus && !isRejectedStatus && !(isAdmin && isNeedRevisionStatus);
+
+  // For UI labels and colors, manager_approver is often treated as a Reviewer in this system's specific UI configuration. Admin sees reviewer-style actions (Reviewed).
+  const displayAsReviewer = isReviewerOnly || userRole === 'manager_approver' || isAdmin;
+  const displayAsApprover = (isApproverOnly && userRole !== 'manager_approver') || (isAdmin && isReviewedStatus);
 
   const handleAddReviewer = (reviewerId: string) => {
     if (reviewerId && !selectedReviewers.includes(reviewerId)) {
@@ -109,7 +163,7 @@ export const SubmissionAssignmentModal: React.FC<SubmissionAssignmentModalProps>
   };
 
   const handleConfirmAction = (action: string) => {
-    if (selectedReviewers.length === 0 && !isReviewAction) {
+    if (action === 'submit' && selectedReviewers.length === 0) {
       alert('Please select at least one reviewer.');
       return;
     }
@@ -145,7 +199,6 @@ export const SubmissionAssignmentModal: React.FC<SubmissionAssignmentModalProps>
               <p className="text-[10px] font-black uppercase tracking-widest text-blue-500">Submitting Document</p>
               <h4 className="text-sm font-bold text-slate-900 truncate">{documentTitle}</h4>
             </div>
-            <Badge className="bg-blue-600">Draft State</Badge>
           </div>
 
           {/* Reviewer Selection */}
@@ -157,10 +210,16 @@ export const SubmissionAssignmentModal: React.FC<SubmissionAssignmentModalProps>
               <Select 
                 onValueChange={handleAddReviewer}
                 value=""
-                disabled={reviewersLoading}
+                disabled={reviewersLoading || readOnly}
               >
-                <SelectTrigger className="border-slate-200 focus:ring-blue-500 bg-white">
-                  <SelectValue placeholder={reviewersLoading ? 'Loading reviewers...' : 'Click to add a reviewer...'} />
+                <SelectTrigger className={`border-slate-200 focus:ring-blue-500 ${readOnly ? 'bg-slate-50 cursor-not-allowed opacity-90' : 'bg-white'}`}>
+                  <SelectValue placeholder={
+                    readOnly
+                      ? 'Reviewers pre-assigned'
+                      : reviewersLoading
+                        ? 'Loading reviewers...'
+                        : 'Click to add a reviewer...'
+                  } />
                 </SelectTrigger>
                 <SelectContent>
                   {reviewersError && (
@@ -194,8 +253,12 @@ export const SubmissionAssignmentModal: React.FC<SubmissionAssignmentModalProps>
               {['low', 'medium', 'high'].map((p) => (
                 <button
                   key={p}
-                  onClick={() => setPriority(p)}
+                  type="button"
+                  disabled={readOnly}
+                  onClick={() => !readOnly && setPriority(p)}
                   className={`py-2 px-4 rounded-lg border-2 text-xs font-bold uppercase tracking-tighter transition-all ${
+                    readOnly ? 'cursor-not-allowed opacity-90' : ''
+                  } ${
                     priority === p 
                       ? p === 'high' ? 'bg-red-50 border-red-500 text-red-600' : p === 'medium' ? 'bg-amber-50 border-amber-500 text-amber-600' : 'bg-green-50 border-green-500 text-green-600'
                       : 'bg-white border-slate-100 text-slate-400 hover:border-slate-200'
@@ -238,12 +301,14 @@ export const SubmissionAssignmentModal: React.FC<SubmissionAssignmentModalProps>
                         </div>
                         <p className="text-[10px] text-slate-500 font-medium uppercase tracking-tight">{reviewer?.dept} Dept</p>
                       </div>
-                      <button 
-                        onClick={() => handleRemoveReviewer(id)}
-                        className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
+                      {!readOnly && (
+                        <button 
+                          onClick={() => handleRemoveReviewer(id)}
+                          className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
                     </div>
                   );
                 })}
@@ -276,10 +341,10 @@ export const SubmissionAssignmentModal: React.FC<SubmissionAssignmentModalProps>
           <Button variant="outline" onClick={onClose} className="border-slate-200 text-slate-600">
             Cancel
           </Button>
-          {isReviewerOnly || isApproverOnly ? (
+          {showReviewActionButtons ? (
             <>
               <Button 
-                onClick={() => handleConfirmAction('reviewed')}
+                onClick={() => handleConfirmAction(displayAsApprover ? 'approve' : 'reviewed')}
                 className={`bg-gradient-to-r ${isApproverOnly ? 'from-blue-500 to-indigo-600' : 'from-emerald-500 to-teal-600'} text-white shadow-lg ${isApproverOnly ? 'shadow-blue-200' : 'shadow-emerald-200'} hover:shadow-xl hover:-translate-y-0.5 transition-all font-bold px-6`}
               >
                 {displayAsApprover ? 'Approved' : 'Reviewed'}

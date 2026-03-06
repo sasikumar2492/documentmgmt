@@ -267,11 +267,7 @@ export const AIConversionPreview: React.FC<AIConversionPreviewProps> = ({
             <Brain className="h-6 w-6 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">AI Conversion Preview</h1>
-            <p className="text-slate-500 flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-amber-500" />
-              Intelligence layer successfully mapped {sections.reduce((a, s) => a + s.fields.length, 0)} fields
-            </p>
+            <h1 className="text-2xl font-bold text-slate-900">AI Conversion Preview</h1>            
           </div>
         </div>
         <div className="flex items-center gap-3">

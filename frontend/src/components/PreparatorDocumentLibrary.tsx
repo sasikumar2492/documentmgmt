@@ -11,7 +11,6 @@ import {
   User,
   Building2,
   Clock,
-  GitBranch,
   ScrollText,
   MoreVertical,
   ChevronDown,
@@ -455,7 +454,7 @@ export const PreparatorDocumentLibrary: React.FC<PreparatorDocumentLibraryProps>
                         )}
                       </div>
                     </TableHead>
-                    <TableHead className="font-semibold text-slate-700">Workflow</TableHead>
+                    {/* Workflow column hidden */}
                     <TableHead 
                       className="font-semibold text-slate-700 cursor-pointer hover:bg-slate-100"
                       onClick={() => toggleSort('fileSize')}
@@ -551,17 +550,7 @@ export const PreparatorDocumentLibrary: React.FC<PreparatorDocumentLibraryProps>
                         {getStatusBadge(report.status)}
                       </TableCell>
 
-                      {/* Workflow */}
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 px-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                          title="View Workflow"
-                        >
-                          <GitBranch className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
+                      {/* Workflow column hidden */}
 
                       {/* File Size */}
                       <TableCell>
@@ -601,7 +590,7 @@ export const PreparatorDocumentLibrary: React.FC<PreparatorDocumentLibraryProps>
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleViewAuditLogs(report.requestId || report.id)}
+                          onClick={() => handleViewAuditLogs(report.id)}
                           className="h-8 px-2 text-purple-600 hover:text-purple-700 hover:bg-purple-50"
                           title="View Audit Logs"
                         >
@@ -664,8 +653,8 @@ export const PreparatorDocumentLibrary: React.FC<PreparatorDocumentLibraryProps>
                             <Download className="h-4 w-4" />
                           </Button>
 
-                          {/* Delete Button - Hidden for Manager role */}
-                          {userRole !== 'manager' && (
+                          {/* Delete Button - Admin only */}
+                          {(userRole || '').toLowerCase() === 'admin' && (
                             <Button
                               variant="ghost"
                               size="sm"
