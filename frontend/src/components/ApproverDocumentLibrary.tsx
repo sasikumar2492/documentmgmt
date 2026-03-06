@@ -64,7 +64,7 @@ export const ApproverDocumentLibrary: React.FC<ApproverDocumentLibraryProps> = (
 
   const canUserEdit = (doc: ReportData) => {
     // Approvers can only edit if the status is "reviewed" or "approved"
-    return ['reviewed', 'approved'].includes(doc.status?.toLowerCase() || '');
+    return ['reviewed', 'approved', 'published'].includes(doc.status?.toLowerCase() || '');
   };
 
   const handlePreview = (report: ReportData) => {
