@@ -2,6 +2,7 @@ const requestService = require('../services/requestService');
 const auditLogService = require('../services/auditLogService');
 const requestWorkflowService = require('../services/requestWorkflowService');
 const emailService = require('../services/emailService');
+const pageRemarkService = require('../services/pageRemarkService');
 
 async function list(req, res) {
   try {
@@ -101,6 +102,20 @@ async function update(req, res) {
     if (!result) {
       return res.status(400).json({ error: 'No fields to update' });
     }
+    const newAssigneeRaw = req.body.assigned_to ?? req.body.assignedTo;
+    if (newAssigneeRaw && previous && previous.assignedTo !== newAssigneeRaw) {
+      await auditLogService.insert({
+        entity_type: 'request',
+        entity_id: req.params.id,
+        action: 'reviewer_assigned',
+        user_id: req.user.id,
+        details: {
+          requestId: previous.requestId,
+          fromAssignee: previous.assignedTo,
+          toAssignee: newAssigneeRaw,
+        },
+      });
+    }
     if (req.body && req.body.status !== undefined && previous && previous.status !== req.body.status) {
       await auditLogService.insert({
         entity_type: 'request',
@@ -130,7 +145,6 @@ async function update(req, res) {
           .catch((err) => console.error('Request status email error:', err));
       }
     }
-    const newAssigneeRaw = req.body.assigned_to ?? req.body.assignedTo;
     if (
       emailService.isEmailConfigured() &&
       newAssigneeRaw &&
@@ -215,4 +229,64 @@ async function workflowAction(req, res) {
   }
 }
 
-module.exports = { list, getById, create, update, getActivity, getWorkflow, workflowAction };
+async function listPageRemarks(req, res) {
+  try {
+    const rows = await pageRemarkService.listByRequest(req.params.id);
+    res.json(rows);
+  } catch (err) {
+    console.error('Request page remarks list error:', err);
+    res.status(500).json({ error: 'Failed to list page remarks' });
+  }
+}
+
+async function savePageRemark(req, res) {
+  try {
+    const pageNumber = parseInt(req.params.page, 10);
+    if (!Number.isFinite(pageNumber) || pageNumber <= 0) {
+      return res.status(400).json({ error: 'Invalid page number' });
+    }
+    const { remark } = req.body || {};
+    const trimmed = (remark || '').toString();
+    const row = await pageRemarkService.upsert(req.params.id, pageNumber, trimmed, req.user && req.user.id);
+    res.json(row);
+  } catch (err) {
+    console.error('Request page remark save error:', err);
+    res.status(500).json({ error: 'Failed to save page remark' });
+  }
+}
+
+async function remove(req, res) {
+  try {
+    const deleted = await requestService.remove(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Request not found' });
+    }
+
+    // Audit log entry so Activity Log can show the deletion event.
+    await auditLogService.insert({
+      entity_type: 'request',
+      entity_id: req.params.id,
+      action: 'request_deleted',
+      user_id: req.user.id,
+      details: { requestId: deleted.requestId, title: deleted.title },
+    });
+
+    res.status(204).send();
+  } catch (err) {
+    console.error('Request delete error:', err);
+    res.status(500).json({ error: 'Failed to delete request' });
+  }
+}
+
+module.exports = {
+  list,
+  getById,
+  create,
+  update,
+  getActivity,
+  getWorkflow,
+  workflowAction,
+  listPageRemarks,
+  savePageRemark,
+  remove,
+};

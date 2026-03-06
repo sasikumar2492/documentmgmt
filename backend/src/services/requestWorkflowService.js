@@ -97,13 +97,23 @@ async function performAction(requestId, action, userId, comment) {
       // Update request status
       await requestService.update(requestId, { status: newStatus });
 
-      // Audit log for status change (for Activity Timeline)
+      // Audit log for Activity Timeline (frontend expects specific actions & readable details)
       await auditLogService.insert({
         entity_type: 'request',
         entity_id: requestId,
-        action: 'status_changed',
+        action:
+          action === 'approve'
+            ? 'request_approved'
+            : action === 'reject'
+            ? 'request_rejected'
+            : 'revisions_requested',
         user_id: userId || null,
-        details: { from: oldStatus, to: newStatus, requestId: request.requestId },
+        details: {
+          from: oldStatus,
+          to: newStatus,
+          requestId: request.requestId,
+          ...(comment != null && String(comment).trim() ? { comment: String(comment).trim() } : {}),
+        },
       });
 
       // Email notification for status change (reviewer / approver / admin flows)

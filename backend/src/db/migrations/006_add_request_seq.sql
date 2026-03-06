@@ -1,32 +1,73 @@
--- Add numeric internal sequence for requests using existing column request_id
+-- Ensure request_id is TEXT with values like REQ-YYYY-10001, REQ-YYYY-10002, ...
+-- Column name stays exactly: request_id
+-- Also creates a sequence request_display_seq for the numeric suffix (10001, 10002, ...).
 -- Run with: node src/db/runMigrations.js
 
--- 1) Create a sequence (if it does not exist) starting at 10001
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_class WHERE relkind = 'S' AND relname = 'request_id') THEN
-    CREATE SEQUENCE request_id
-      START WITH 10001
-      INCREMENT BY 1
-      NO MINVALUE
-      NO MAXVALUE
-      CACHE 1;
-  END IF;
-END
-$$;
+------------------------------------------------------------
+-- 1) Clean up any old numeric sequence/default on request_id
+------------------------------------------------------------
 
--- 2) Convert existing request_id values to numeric, keeping the same column name.
---    This assumes existing values are either pure digits or end with digits,
---    e.g. 'REQ-2026-65305' -> 65305.
+-- Drop any old default on request_id (safe if none exists)
 ALTER TABLE requests
-  ALTER COLUMN request_id TYPE BIGINT USING
-    CASE
-      WHEN request_id ~ '^\d+$' THEN request_id::BIGINT
-      WHEN request_id ~ '.*(\d+)$' THEN regexp_replace(request_id, '.*(\d+)$', '\1')::BIGINT
-      ELSE nextval('request_id')
-    END;
+  ALTER COLUMN request_id DROP DEFAULT;
 
--- 3) Set default to use the sequence for new rows
+-- Drop any old sequence named request_id (from earlier attempts), if present
+DROP SEQUENCE IF EXISTS request_id;
+
+------------------------------------------------------------
+-- 2) Make sure request_id is TEXT
+------------------------------------------------------------
+
+-- If it was already TEXT, this is effectively a no-op; if it was numeric, cast to text.
 ALTER TABLE requests
-  ALTER COLUMN request_id SET DEFAULT nextval('request_id');
+  ALTER COLUMN request_id TYPE TEXT
+  USING request_id::text;
 
+------------------------------------------------------------
+-- 3) Create the new display sequence for suffix: 10001, 10002, ...
+------------------------------------------------------------
+
+CREATE SEQUENCE IF NOT EXISTS request_display_seq
+  START WITH 10001
+  INCREMENT BY 1
+  NO MINVALUE
+  NO MAXVALUE
+  CACHE 1;
+
+------------------------------------------------------------
+-- 4) Normalize ALL existing rows to REQ-YYYY-<seq>
+--    We assign a unique running number per row: 10001, 10002, ...
+------------------------------------------------------------
+
+WITH numbered AS (
+  SELECT
+    id,
+    (10000 + ROW_NUMBER() OVER (ORDER BY created_at, id))::BIGINT AS seq_num
+  FROM requests
+)
+UPDATE requests r
+SET request_id =
+  'REQ-' ||
+  EXTRACT(YEAR FROM r.created_at)::TEXT ||
+  '-' ||
+  numbered.seq_num::TEXT
+FROM numbered
+WHERE r.id = numbered.id;
+
+------------------------------------------------------------
+-- 5) Align request_display_seq to continue after the highest suffix
+------------------------------------------------------------
+
+-- Extract numeric suffix from current request_id and set sequence to next value.
+-- If there are no rows, start from 10001.
+SELECT
+  setval(
+    'request_display_seq',
+    COALESCE(
+      (
+        SELECT MAX( (regexp_replace(request_id, '.*-([0-9]+)$', '\1'))::BIGINT )
+        FROM requests
+      ) + 1,
+      10001
+    )
+  );

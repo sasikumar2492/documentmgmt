@@ -51,6 +51,12 @@ All endpoints currently implemented and available for the frontend and Postman.
 | 38 | GET | /api/workflow-rules/:id | Yes | Get workflow rule |
 | 39 | POST | /api/workflow-rules | Yes | Create workflow rule |
 | 40 | PATCH | /api/workflow-rules/:id | Yes | Update workflow rule |
+| 41 | DELETE | /api/requests/:id | Yes | Delete request (and linked documents) |
+| 42 | GET | /api/requests/:id/page-remarks | Yes | List page-level remarks for a request |
+| 43 | PUT | /api/requests/:id/page-remarks/:page | Yes | Save/upsert page remark |
+| 41 | DELETE | /api/requests/:id | Yes | Delete request (and linked documents) |
+| 42 | GET | /api/requests/:id/page-remarks | Yes | List page-level remarks for a request |
+| 43 | PUT | /api/requests/:id/page-remarks/:page | Yes | Save/upsert page remark |
 
 ---
 
@@ -729,6 +735,115 @@ Update request (status, assignment, priority, etc.).
 - `401` – Missing/invalid token
 - `404` – `{ "error": "Request not found" }`
 - `500` – `{ "error": "Failed to update request", "detail": "..." }`
+
+---
+
+### DELETE /api/requests/:id
+
+Delete a request and any linked documents. This is used by the Document Library delete action (once wired) to remove a request and its associated document records.
+
+**Auth required:** Yes
+
+**Path:** `:id` is the **request UUID**.
+
+**Success (204):** No content body.
+
+Side effects:
+
+- Deletes all `documents` rows where `request_id = :id`.
+- Deletes the `requests` row itself.
+- Inserts an audit log entry:
+  - `entity_type = 'request'`
+  - `action = 'request_deleted'`
+  - `details = { requestId, title }`
+
+**Errors:**
+
+- `401` – Missing/invalid token
+- `404` – `{ "error": "Request not found" }`
+- `500` – `{ "error": "Failed to delete request" }`
+
+---
+
+### GET /api/requests/:id/page-remarks
+
+List all page-level remarks for a request (used by the Raise Request / Document Library editor to show which pages have comments).
+
+**Auth required:** Yes
+
+**Path:** `:id` is the **request UUID**.
+
+**Success (200):** Array of remark objects, ordered by `page_number`:
+
+```json
+[
+  {
+    "id": "uuid",
+    "requestId": "uuid-of-request",
+    "pageNumber": 1,
+    "remark": "Enter your observations, requested changes, or notes for this page...",
+    "createdBy": "uuid-or-null",
+    "updatedBy": "uuid-or-null",
+    "createdAt": "2026-03-06T10:00:00.000Z",
+    "updatedAt": "2026-03-06T10:05:00.000Z"
+  }
+]
+```
+
+**Errors:**
+
+- `401` – Missing/invalid token
+- `500` – `{ "error": "Failed to list page remarks" }`
+
+---
+
+### PUT /api/requests/:id/page-remarks/:page
+
+Create or update a remark for a specific page of a request. This API upserts by `(request_id, page_number)`.
+
+**Auth required:** Yes
+
+**Path parameters:**
+
+| Parameter | Type | Required | Description         |
+|----------|------|----------|---------------------|
+| id       | string | Yes    | Request UUID        |
+| page     | number | Yes    | 1-based page number |
+
+**Request body (JSON):**
+
+| Field  | Type   | Required | Description                                   |
+|--------|--------|----------|-----------------------------------------------|
+| remark | string | Yes      | Free-text remark for the specified page      |
+
+**Example:**
+
+```json
+{
+  "remark": "Please double-check the revision date on this page."
+}
+```
+
+**Success (200):** Remark object:
+
+```json
+{
+  "id": "uuid",
+  "requestId": "uuid-of-request",
+  "pageNumber": 1,
+  "remark": "Please double-check the revision date on this page.",
+  "createdBy": "uuid-or-null",
+  "updatedBy": "uuid-or-null",
+  "createdAt": "2026-03-06T10:00:00.000Z",
+  "updatedAt": "2026-03-06T10:10:00.000Z"
+}
+```
+
+**Errors:**
+
+- `400` – `{ "error": "Invalid page number" }`
+- `401` – Missing/invalid token
+- `500` – `{ "error": "Failed to save page remark" }`
 
 ---
 

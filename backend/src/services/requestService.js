@@ -1,9 +1,11 @@
 const { pool } = require('../db/pool');
 
-function nextRequestId() {
+/** Returns next sequential request_id in form REQ-YYYY-10001, REQ-YYYY-10002, ... */
+async function nextRequestId(client) {
+  const { rows } = await client.query(`SELECT nextval('request_display_seq') AS n`);
+  const n = rows[0].n;
   const y = new Date().getFullYear();
-  const r = Math.floor(10000 + Math.random() * 90000);
-  return `REQ-${y}-${r}`;
+  return `REQ-${y}-${n}`;
 }
 
 function mapRow(row) {
@@ -59,7 +61,7 @@ async function list(filters = {}) {
     params.push(status);
   }
   if (q && String(q).trim()) {
-    conditions.push(`(r.title ILIKE $${idx} OR CAST(r.request_id AS TEXT) ILIKE $${idx} OR d.name ILIKE $${idx})`);
+    conditions.push(`(r.title ILIKE $${idx} OR r.request_id ILIKE $${idx} OR d.name ILIKE $${idx})`);
     params.push(`%${String(q).trim()}%`);
     idx += 1;
   }
@@ -168,13 +170,12 @@ async function create(data) {
   const { template_id, title, department_id, created_by } = data;
   const client = await pool.connect();
   try {
-    const insertResult = await client.query(
-      `INSERT INTO requests (template_id, title, department_id, status, created_by)
-       VALUES ($1, $2, $3, 'draft', $4)
-       RETURNING id`,
-      [template_id, title || null, department_id || null, created_by]
+    const request_id = await nextRequestId(client);
+    await client.query(
+      `INSERT INTO requests (template_id, request_id, title, department_id, status, created_by)
+       VALUES ($1, $2, $3, $4, 'draft', $5)`,
+      [template_id, request_id, title || null, department_id || null, created_by]
     );
-    const newId = insertResult.rows[0]?.id;
     const q = await client.query(
       `SELECT r.*, t.file_name AS template_file_name, t.file_size AS template_file_size,
               d.name AS department_name, u.full_name AS assigned_to_name
@@ -182,8 +183,8 @@ async function create(data) {
        LEFT JOIN templates t ON r.template_id = t.id
        LEFT JOIN departments d ON r.department_id = d.id
        LEFT JOIN users u ON r.assigned_to = u.id
-       WHERE r.id = $1`,
-      [newId]
+       WHERE r.request_id = $1`,
+      [request_id]
     );
     const row = q.rows[0];
     return row ? mapRow(row) : null;
@@ -297,4 +298,38 @@ async function update(id, body) {
   }
 }
 
-module.exports = { list, getById, create, update, nextRequestId };
+async function remove(id) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Delete any documents linked to this request first to satisfy FK constraints.
+    await client.query('DELETE FROM documents WHERE request_id = $1', [id]);
+
+    // Delete the request itself and capture basic fields for callers (e.g. audit logs).
+    const del = await client.query('DELETE FROM requests WHERE id = $1 RETURNING *', [id]);
+    const row = del.rows[0];
+    if (!row) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+
+    await client.query('COMMIT');
+    return {
+      id: row.id,
+      requestId: row.request_id,
+      title: row.title,
+    };
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (_) {
+      // ignore rollback errors
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { list, getById, create, update, remove, nextRequestId };

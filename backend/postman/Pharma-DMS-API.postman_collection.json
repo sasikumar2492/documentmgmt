@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Pharma DMS API",
-    "description": "REST API for Pharma Document Management System. Covers all completed APIs: Health, Auth (login, me, refresh, forgot/reset password), Dashboard summary, Departments, Users, Templates (list, get, file, download, upload, update), Requests (list with filters/pagination, get, activity, workflow, create, update), Form Data, Documents, Audit Logs, Workflows, Workflow Rules. Base URL: {{baseUrl}}. After login, set token in collection variable for Bearer auth.",
+    "description": "REST API for Pharma Document Management System. Covers all completed APIs: Health, Auth (login, me, refresh, forgot/reset password), Dashboard summary, Departments, Users, Templates (list, get, file, download, upload, update), Requests (list with filters/pagination, get, activity, workflow, page-remarks, create, update, delete), Form Data, Documents, Audit Logs, Workflows, Workflow Rules. Base URL: {{baseUrl}}. After login, set token in collection variable for Bearer auth.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -21,7 +21,8 @@
     { "key": "templateId", "value": "" },
     { "key": "documentId", "value": "" },
     { "key": "workflowId", "value": "" },
-    { "key": "ruleId", "value": "" }
+    { "key": "ruleId", "value": "" },
+    { "key": "pageNumber", "value": "1" }
   ],
   "item": [
     {
@@ -350,6 +351,35 @@
             },
             "url": "{{baseUrl}}/requests/{{requestId}}",
             "description": "Update request. Body: title, status, assigned_to, review_sequence/reviewSequence, priority, submission_comments (all optional)."
+          }
+        },
+        {
+          "name": "Delete Request",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/requests/{{requestId}}",
+            "description": "Delete a request (and linked documents). Returns 204 on success. Used by Document Library delete action."
+          }
+        },
+        {
+          "name": "Get Page Remarks",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/requests/{{requestId}}/page-remarks",
+            "description": "List page-level remarks for a request (Raise Request / Document Library editor). Returns array of { id, requestId, pageNumber, remark, createdBy, updatedBy, createdAt, updatedAt }."
+          }
+        },
+        {
+          "name": "Save Page Remark",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"remark\": \"Your observations or requested changes for this page...\"\n}"
+            },
+            "url": "{{baseUrl}}/requests/{{requestId}}/page-remarks/{{pageNumber}}",
+            "description": "Create or update a remark for a specific page (1-based). Body: remark (string). Upserts by request_id + page_number."
           }
         }
       ]
