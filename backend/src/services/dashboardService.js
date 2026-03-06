@@ -148,6 +148,64 @@ async function getRecentTemplates(limit = 10, filters = {}) {
   }
 }
 
+async function getTemplateCountsByStatus(filters = {}) {
+  const { department_id, days } = filters;
+  let query = `
+    SELECT status, COUNT(*)::int AS count
+    FROM templates
+    WHERE 1=1
+  `;
+  const params = [];
+  let n = 1;
+  if (department_id) {
+    query += ` AND department_id = $${n++}`;
+    params.push(department_id);
+  }
+  if (days != null && days > 0) {
+    query += ` AND created_at >= NOW() - INTERVAL '1 day' * $${n++}`;
+    params.push(Number(days));
+  }
+  query += ` GROUP BY status`;
+  const client = await pool.connect();
+  try {
+    const result = await client.query(query, params);
+    const byStatus = {};
+    result.rows.forEach((row) => {
+      byStatus[row.status] = row.count;
+    });
+    return byStatus;
+  } finally {
+    client.release();
+  }
+}
+
+async function getDocumentTotals(filters = {}) {
+  const { department_id, days } = filters;
+  let query = `
+    SELECT COUNT(*)::int AS total
+    FROM documents d
+    LEFT JOIN requests r ON d.request_id = r.id
+    WHERE 1=1
+  `;
+  const params = [];
+  let n = 1;
+  if (department_id) {
+    query += ` AND r.department_id = $${n++}`;
+    params.push(department_id);
+  }
+  if (days != null && days > 0) {
+    query += ` AND d.created_at >= NOW() - INTERVAL '1 day' * $${n++}`;
+    params.push(Number(days));
+  }
+  const client = await pool.connect();
+  try {
+    const result = await client.query(query, params);
+    return { total: result.rows[0]?.total || 0 };
+  } finally {
+    client.release();
+  }
+}
+
 /**
  * Get dashboard summary: request counts by status, recent requests, recent templates.
  * Query params: limit (default 10), days (optional, e.g. 7/30/90), department_id, assigned_to.
@@ -160,16 +218,27 @@ async function getSummary(filters = {}) {
     assigned_to,
   } = filters;
 
-  const [requestCountsByStatus, recentRequests, recentTemplates] = await Promise.all([
+  const [
+    requestCountsByStatus,
+    recentRequests,
+    recentTemplates,
+    templateCountsByStatus,
+    documentTotals,
+  ] = await Promise.all([
     getRequestCountsByStatus({ department_id, assigned_to, days }),
     getRecentRequests(limit, { department_id, assigned_to, days }),
     getRecentTemplates(limit, { department_id, days }),
+    getTemplateCountsByStatus({ department_id, days }),
+    getDocumentTotals({ department_id, days }),
   ]);
 
   return {
     requestCountsByStatus,
     recentRequests,
     recentTemplates,
+    templateCountsByStatus,
+    templateDraftCount: templateCountsByStatus.draft || 0,
+    documentTotals,
   };
 }
 
@@ -177,5 +246,7 @@ module.exports = {
   getRequestCountsByStatus,
   getRecentRequests,
   getRecentTemplates,
+  getTemplateCountsByStatus,
+  getDocumentTotals,
   getSummary,
 };

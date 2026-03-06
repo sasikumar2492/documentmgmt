@@ -227,7 +227,7 @@ Reset password using the token received from forgot-password (e.g. via email or 
 
 ### GET /api/dashboard/summary
 
-Get dashboard summary: request counts by status, recent requests, and recent templates.
+Get dashboard summary, including counts for AI Conversion-style cards (Total Documents, Templates, Approved, Pending), request counts by status, recent requests, and recent templates.
 
 **Auth required:** Yes
 
@@ -245,8 +245,33 @@ Get dashboard summary: request counts by status, recent requests, and recent tem
 ```json
 {
   "requestCountsByStatus": { "draft": 5, "submitted": 3, "approved": 10 },
-  "recentRequests": [ { "id": "uuid", "requestId": "REQ-2026-12345", "title": "...", "status": "draft", "departmentName": "QA", "createdAt": "..." } ],
-  "recentTemplates": [ { "id": "uuid", "fileName": "SOP.docx", "status": "draft", "updatedAt": "..." } ]
+  "recentRequests": [
+    {
+      "id": "uuid",
+      "requestId": "REQ-2026-12345",
+      "title": "Engineering Approval 2026",
+      "status": "draft",
+      "departmentName": "QA",
+      "createdAt": "2026-03-06T10:00:00.000Z"
+    }
+  ],
+  "recentTemplates": [
+    {
+      "id": "uuid",
+      "fileName": "RSD-SOP-031 IT Support.docx",
+      "status": "approved",
+      "uploadDate": "2026-03-05T09:00:00.000Z",
+      "updatedAt": "2026-03-05T09:15:00.000Z"
+    }
+  ],
+  "templateCountsByStatus": {
+    "draft": 2,
+    "approved": 8
+  },
+  "templateDraftCount": 2,
+  "documentTotals": {
+    "total": 25
+  }
 }
 ```
 

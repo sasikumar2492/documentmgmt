@@ -125,7 +125,7 @@
                 { "key": "assigned_to", "value": "", "disabled": true }
               ]
             },
-            "description": "Request counts by status, recent requests, recent templates."
+            "description": "Dashboard summary used for AI Conversion cards and main dashboard: requestCountsByStatus, recentRequests, recentTemplates, templateCountsByStatus (for Templates/Approved/Pending cards), and documentTotals.total (for Total Documents card)."
           }
         }
       ]
