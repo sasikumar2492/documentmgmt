@@ -94,6 +94,7 @@ export const PreparatorDocumentLibrary: React.FC<PreparatorDocumentLibraryProps>
     const role = userRole?.toLowerCase() || '';
     const status = (doc.status || '').toLowerCase();
     
+    if (status === 'published') return false;
     // Admin and Manager roles have full access
     if (role === 'admin' || role === 'manager') return true;
     

@@ -39,7 +39,7 @@ interface RequestActivityLog {
   fileName: string;
   documentType: string;
   department: string;
-  status: 'pending' | 'in-review' | 'approved' | 'rejected' | 'returned';
+  status: 'pending' | 'in-review' | 'approved' | 'rejected' | 'returned' | 'in-progress';
   submittedDate: string;
   lastUpdated: string;
   totalActivities: number;
@@ -72,6 +72,14 @@ export function ActivityLogDetail({ requestId, onBack, reports = [], departments
   const resolveDepartmentName = (value?: string | null): string => {
     if (!value) return 'General';
     return departmentNameById[value] || value;
+  };
+
+  const mapEntryStatus = (status?: string | null): ActivityLogEntry['status'] => {
+    if (!status) return 'completed';
+    const normalized = status.toLowerCase().replace(/_/g, '-');
+    if (normalized === 'in-progress') return 'in-progress';
+    if (normalized === 'pending') return 'pending';
+    return 'completed';
   };
 
   useEffect(() => {
@@ -149,7 +157,7 @@ export function ActivityLogDetail({ requestId, onBack, reports = [], departments
               department,
               details,
               esign,
-              status: 'completed',
+              status: mapEntryStatus((e as any).status),
             };
           });
           setApiActivities(mapped);
@@ -219,7 +227,7 @@ export function ActivityLogDetail({ requestId, onBack, reports = [], departments
             department,
             details,
             esign,
-            status: 'completed',
+            status: mapEntryStatus((e as any).status),
           };
         });
         setApiActivities(mapped);
@@ -450,12 +458,11 @@ export function ActivityLogDetail({ requestId, onBack, reports = [], departments
   let selectedLog: RequestActivityLog | null = null;
 
   if (currentReport) {
-    const base: Omit<RequestActivityLog, 'totalActivities' | 'activities'> = {
+    const base: Omit<RequestActivityLog, 'totalActivities' | 'activities' | 'status'> = {
       requestId: currentReport.requestId || `REQ-${currentReport.id}`,
       fileName: currentReport.fileName || 'Unknown Document',
       documentType: currentReport.documentType || 'Approval Request',
       department: resolveDepartmentName(currentReport.department || currentReport.assignedTo || 'General'),
-      status: mapReportStatusToActivityStatus(currentReport.status),
       submittedDate: currentReport.uploadDate || new Date().toLocaleDateString(),
       lastUpdated:
         currentReport.lastModified ||
@@ -468,8 +475,25 @@ export function ActivityLogDetail({ requestId, onBack, reports = [], departments
         ? apiActivities
         : generateActivitiesFromReport(currentReport);
 
+    const latestActivity = activities.reduce<ActivityLogEntry | null>((latest, current) => {
+      if (!latest) return current;
+      const latestTime = new Date(latest.timestamp).getTime();
+      const currentTime = new Date(current.timestamp).getTime();
+      return currentTime > latestTime ? current : latest;
+    }, null);
+
+    let overallStatus: RequestActivityLog['status'];
+    if (latestActivity && latestActivity.status !== 'completed') {
+      // Use the exact latest entry status (so in_progress shows as In Progress)
+      overallStatus = latestActivity.status as RequestActivityLog['status'];
+    } else {
+      // Fallback to report-level status mapping
+      overallStatus = mapReportStatusToActivityStatus(currentReport.status);
+    }
+
     selectedLog = {
       ...base,
+      status: overallStatus,
       totalActivities: activities.length,
       activities,
     };
@@ -502,6 +526,7 @@ export function ActivityLogDetail({ requestId, onBack, reports = [], departments
     const styles = {
       pending: 'bg-gradient-to-r from-yellow-500 to-orange-500 text-white shadow-md',
       'in-review': 'bg-gradient-to-r from-blue-500 to-cyan-600 text-white shadow-md',
+      'in-progress': 'bg-gradient-to-r from-blue-500 to-cyan-600 text-white shadow-md',
       approved: 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-md',
       rejected: 'bg-gradient-to-r from-red-500 to-rose-600 text-white shadow-md',
       returned: 'bg-gradient-to-r from-purple-500 to-violet-600 text-white shadow-md',
@@ -509,6 +534,7 @@ export function ActivityLogDetail({ requestId, onBack, reports = [], departments
     const labelMap: Record<RequestActivityLog['status'], string> = {
       pending: 'Pending',
       'in-review': 'In Review',
+      'in-progress': 'In Progress',
       approved: 'Approved',
       rejected: 'Rejected',
       returned: 'Returned For Revision',
