@@ -167,6 +167,14 @@
             "url": "{{baseUrl}}/users",
             "description": "List users (for assignee/reviewer selection)."
           }
+        },
+        {
+          "name": "Get User by ID (Validate Reviewer/Approver)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/users/{{userId}}",
+            "description": "Get single user by ID. Use before review/approve in Document Library to confirm the reviewer/approver still exists. 200 = OK; 404 = show validation error and do not call review/approve API."
+          }
         }
       ]
     },

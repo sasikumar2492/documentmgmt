@@ -1,9 +1,8 @@
 const bcrypt = require('bcrypt');
 const { pool } = require('./pool');
 
-// Policy-compliant: min length 8, alphanumeric + special character (per Password Length & Password Complexity).
-const defaultPassword = 'Admin@123';
-const testPassword = 'User@123';
+const defaultPassword = 'admin123';
+const testPassword = 'test123';
 
 // One canonical role per type: admin, preparator, reviewer, approver, requestor, manager
 const roleUsers = [
@@ -67,11 +66,11 @@ async function seed() {
       );
     }
 
-    console.log('Seed done. Credentials (policy: 8+ chars, alphanumeric + special char):');
-    console.log('  admin / Admin@123  (admin)');
+    console.log('Seed done. Test users (all roles):');
+    console.log('  admin / admin123  (admin)');
     roleUsers
       .filter((u) => u.role !== 'admin')
-      .forEach((u) => console.log(`  ${u.username} / User@123  (${u.role})`));
+      .forEach((u) => console.log(`  ${u.username} / ${testPassword}  (${u.role})`));
   } finally {
     client.release();
     await pool.end();

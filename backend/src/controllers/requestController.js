@@ -3,6 +3,7 @@ const auditLogService = require('../services/auditLogService');
 const requestWorkflowService = require('../services/requestWorkflowService');
 const emailService = require('../services/emailService');
 const pageRemarkService = require('../services/pageRemarkService');
+const userService = require('../services/userService');
 
 async function list(req, res) {
   try {
@@ -98,6 +99,22 @@ async function create(req, res) {
 async function update(req, res) {
   try {
     const previous = await requestService.getById(req.params.id);
+    if (!previous) {
+      return res.status(404).json({ error: 'Request not found' });
+    }
+
+    // Extra authentication validation for review/approval operations:
+    // ensure the JWT user still exists in the users table.
+    let actorUser = null;
+    if (req.user && req.user.id) {
+      actorUser = await userService.getById(req.user.id);
+    }
+    if (!actorUser) {
+      return res
+        .status(401)
+        .json({ error: 'Authenticated user not found', code: 'USER_NOT_FOUND' });
+    }
+
     const body = { ...(req.body || {}) };
     // When reviewer sets status to "reviewed", advance assigned_to to next in review_sequence (approver).
     if (previous && body.status === 'reviewed') {
@@ -125,6 +142,14 @@ async function update(req, res) {
           requestId: previous.requestId,
           fromAssignee: previous.assignedTo,
           toAssignee: newAssigneeRaw,
+          actorUser: {
+            id: actorUser.id,
+            username: actorUser.username,
+            fullName: actorUser.fullName,
+            role: actorUser.role,
+            departmentId: actorUser.departmentId,
+            departmentName: actorUser.departmentName,
+          },
         },
       });
     }
@@ -134,7 +159,19 @@ async function update(req, res) {
         entity_id: req.params.id,
         action: 'status_changed',
         user_id: req.user.id,
-        details: { from: previous.status, to: body.status, requestId: result.requestId },
+        details: {
+          from: previous.status,
+          to: body.status,
+          requestId: result.requestId,
+          actorUser: {
+            id: actorUser.id,
+            username: actorUser.username,
+            fullName: actorUser.fullName,
+            role: actorUser.role,
+            departmentId: actorUser.departmentId,
+            departmentName: actorUser.departmentName,
+          },
+        },
       });
       const roleLower = (req.user.role || '').toLowerCase();
       const isAdmin = roleLower === 'admin';

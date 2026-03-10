@@ -20,7 +20,8 @@ All endpoints currently implemented and available for the frontend and Postman. 
 | 7 | GET | /api/dashboard/summary | Yes | Dashboard: requestCountsByStatus, recentRequests, recentTemplates, documentTotals |
 | 8 | GET | /api/departments | Yes | List departments |
 | 9 | GET | /api/users | Yes | List users |
-| 10 | GET | /api/templates | Yes | List templates |
+| 10 | GET | /api/users/:id | Yes | Get single user (used to validate reviewer/approver before review/approve in Document Library) |
+| 11 | GET | /api/templates | Yes | List templates |
 | 11 | GET | /api/templates/:id | Yes | Get template |
 | 12 | GET | /api/templates/:id/file | Yes | Template file stream (binary) |
 | 13 | GET | /api/templates/:id/download | Yes | Presigned S3 download URL (or 404) |
@@ -350,6 +351,35 @@ List users (for assignee/reviewer selection).
 
 - `401` – Missing/invalid token
 - `500` – `{ "error": "Failed to list users" }`
+
+---
+
+### GET /api/users/:id
+
+Get a single user by ID. This is intended for **validation before review/approve actions** in the Document Library: call this endpoint with the reviewer/approver user ID and proceed only if the user exists.
+
+**Auth required:** Yes
+
+**Path:** `:id` is the user UUID.
+
+**Success (200):**
+
+```json
+{
+  "id": "uuid",
+  "username": "john",
+  "fullName": "John Doe",
+  "role": "reviewer",
+  "departmentId": "uuid-or-null",
+  "departmentName": "Quality Assurance"
+}
+```
+
+**Errors:**
+
+- `401` – Missing/invalid token
+- `404` – `{ "error": "User not found" }` (frontend should show validation message and **not** call review/approve API)
+- `500` – `{ "error": "Failed to get user" }`
 
 ---
 
@@ -742,6 +772,11 @@ Update request (status, assignment, priority, etc.).
 
 **Auth required:** Yes
 
+Additional validation for review/approval:
+
+- The Bearer token must map to an existing user record. If the JWT user no longer exists in `users`, the API returns `401` with `{ "error": "Authenticated user not found", "code": "USER_NOT_FOUND" }` and **does not** update the request.
+- For status and assignment changes (used by the Document Library review/approval actions), audit log entries include a full `actorUser` snapshot in `details` (id, username, fullName, role, departmentId, departmentName) so the View Audit Log screen can show precise who-did-what information even if the user later changes or is deleted.
+
 **Request body (JSON):** All fields optional. API accepts both `snake_case` and `camelCase` for some fields.
 
 | Field              | Type   | Description                    |
@@ -795,10 +830,19 @@ Update request (status, assignment, priority, etc.).
 }
 ```
 
+**Example 401 when JWT user no longer exists (extra authentication validation for Document Library review/approve):**
+
+```json
+{
+  "error": "Authenticated user not found",
+  "code": "USER_NOT_FOUND"
+}
+```
+
 **Errors:**
 
 - `400` – `{ "error": "No fields to update" }`
-- `401` – Missing/invalid token
+- `401` – Missing/invalid token, or `{ "error": "Authenticated user not found", "code": "USER_NOT_FOUND" }`
 - `404` – `{ "error": "Request not found" }`
 - `500` – `{ "error": "Failed to update request", "detail": "..." }`
 
@@ -1353,6 +1397,7 @@ All completed APIs. Base URL: `/api`. Auth = Bearer token (except login, health,
 | GET | /api/dashboard/summary | Yes | Dashboard summary (counts, recent requests/templates, documentTotals) |
 | GET | /api/departments | Yes | List departments |
 | GET | /api/users | Yes | List users |
+| GET | /api/users/:id | Yes | Get single user (used to validate reviewer/approver before review/approve in Document Library) |
 | GET | /api/templates | Yes | List templates |
 | GET | /api/templates/:id | Yes | Get template |
 | GET | /api/templates/:id/file | Yes | Template file stream |

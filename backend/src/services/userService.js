@@ -26,4 +26,33 @@ async function list() {
   }
 }
 
-module.exports = { list };
+/**
+ * Get a single user by id, including department name (used for authentication validation and audit logs).
+ */
+async function getById(id) {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(
+      `SELECT u.id, u.username, u.full_name, u.role, u.department_id,
+              d.name AS department_name
+       FROM users u
+       LEFT JOIN departments d ON u.department_id = d.id
+       WHERE u.id = $1`,
+      [id]
+    );
+    const r = result.rows[0];
+    if (!r) return null;
+    return {
+      id: r.id,
+      username: r.username,
+      fullName: r.full_name,
+      role: r.role,
+      departmentId: r.department_id,
+      departmentName: r.department_name,
+    };
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { list, getById };
