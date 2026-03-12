@@ -23,4 +23,28 @@ async function getById(req, res) {
   }
 }
 
-module.exports = { list, getById };
+async function create(req, res) {
+  try {
+    const { username, password, full_name, email, role, department_id } = req.body || {};
+    const user = await userService.create({
+      username,
+      password,
+      full_name,
+      email,
+      role,
+      department_id,
+    });
+    res.status(201).json(user);
+  } catch (err) {
+    if (err.statusCode === 400) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'Username already exists' });
+    }
+    console.error('User create error:', err);
+    res.status(500).json({ error: 'Failed to create user' });
+  }
+}
+
+module.exports = { list, getById, create };

@@ -328,11 +328,11 @@ List all departments.
 
 ### GET /api/users
 
-List users (for assignee/reviewer selection).
+List users (for assignee/reviewer selection and Admin User Management).
 
 **Auth required:** Yes
 
-**Success (200):**
+**Success (200):** Array of user DTOs:
 
 ```json
 [
@@ -340,6 +340,7 @@ List users (for assignee/reviewer selection).
     "id": "uuid",
     "username": "john",
     "fullName": "John Doe",
+    "email": "john.doe@example.com",
     "role": "preparator",
     "departmentId": "uuid-or-null",
     "departmentName": "Quality Assurance"
@@ -369,6 +370,7 @@ Get a single user by ID. This is intended for **validation before review/approve
   "id": "uuid",
   "username": "john",
   "fullName": "John Doe",
+  "email": "john.doe@example.com",
   "role": "reviewer",
   "departmentId": "uuid-or-null",
   "departmentName": "Quality Assurance"
@@ -380,6 +382,59 @@ Get a single user by ID. This is intended for **validation before review/approve
 - `401` – Missing/invalid token
 - `404` – `{ "error": "User not found" }` (frontend should show validation message and **not** call review/approve API)
 - `500` – `{ "error": "Failed to get user" }`
+
+---
+
+### POST /api/users
+
+Create a new user. Used by the Admin Dashboard **Add New User** flow and for seeding via Postman.
+
+**Auth required:** Yes (admin role)
+
+**Request body (JSON):**
+
+| Field         | Type   | Required | Description                                                                 |
+|---------------|--------|----------|-----------------------------------------------------------------------------|
+| username      | string | Yes      | Unique username/login                                                       |
+| password      | string | Yes      | Plain-text password (server stores as bcrypt hash)                          |
+| role          | string | Yes      | One of: `admin`, `preparator`, `reviewer`, `approver`, `requestor`, `manager` |
+| full_name     | string | No       | Full name for display                                                       |
+| email         | string | No       | Email address (used for notifications, optional in Phase 1)                |
+| department_id | string | No       | Department UUID (must exist in `departments` table if provided)            |
+
+**Example request:**
+
+```json
+{
+  "username": "newuser",
+  "password": "SecurePass123",
+  "full_name": "New User",
+  "email": "newuser@example.com",
+  "role": "requestor",
+  "department_id": "a0000001-0000-0000-0000-000000000001"
+}
+```
+
+**Success (201):** Created user DTO:
+
+```json
+{
+  "id": "b0000010-0000-0000-0000-000000000001",
+  "username": "newuser",
+  "fullName": "New User",
+  "email": "newuser@example.com",
+  "role": "requestor",
+  "departmentId": "a0000001-0000-0000-0000-000000000001",
+  "departmentName": "Engineering"
+}
+```
+
+**Errors:**
+
+- `400` – `{ "error": "Username and password are required" }`, `{ "error": "Role must be one of: admin, preparator, reviewer, approver, requestor, manager" }`, or other validation messages.
+- `401` – Missing/invalid token.
+- `409` – `{ "error": "Username already exists" }`.
+- `500` – `{ "error": "Failed to create user" }`.
 
 ---
 

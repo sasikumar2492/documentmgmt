@@ -6,6 +6,7 @@ const router = express.Router();
 router.use(authMiddleware);
 
 router.get('/', userController.list);
+router.post('/', userController.create);
 router.get('/:id', userController.getById);
 
 module.exports = router;
