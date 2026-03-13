@@ -87,6 +87,26 @@ function buildHumanDetails(row) {
     return 'Request deleted.';
   }
 
+  if (action === 'user_validated_for_review') {
+    const username = detailsObj && (detailsObj.username || detailsObj.user || null);
+    const email = detailsObj && (detailsObj.email || null);
+    if (username && email) {
+      return `Secondary verification successful for ${username} (${email}).`;
+    }
+    if (email) {
+      return `Secondary verification successful for user with email ${email}.`;
+    }
+    return 'Secondary verification successful.';
+  }
+
+  if (action === 'user_validation_failed') {
+    const email = detailsObj && (detailsObj.email || null);
+    if (email) {
+      return `Secondary verification failed for user with email ${email}.`;
+    }
+    return 'Secondary verification failed.';
+  }
+
   if (action === 'page_changed') {
     const page = detailsObj && (detailsObj.pageNumber || detailsObj.page || detailsObj.page_index);
     const type = detailsObj && (detailsObj.eventType || detailsObj.type);

@@ -1,4 +1,5 @@
 const userService = require('../services/userService');
+const auditLogService = require('../services/auditLogService');
 
 async function list(req, res) {
   try {
@@ -47,4 +48,54 @@ async function create(req, res) {
   }
 }
 
-module.exports = { list, getById, create };
+/**
+ * Secondary verification endpoint used before review/approve actions from Document Library.
+ * Body: { email, password, documentId }. When valid, logs to audit_logs and returns { username, email, status }.
+ */
+async function validateForDocument(req, res) {
+  try {
+    const { email, password, documentId } = req.body || {};
+    if (!email || !password || !documentId) {
+      return res.status(400).json({ error: 'email, password, and documentId are required' });
+    }
+
+    const user = await userService.validateByEmailAndPassword(email, password);
+    if (!user) {
+      // Log failed attempt as request activity so it appears in View Activity
+      await auditLogService.insert({
+        entity_type: 'request',
+        entity_id: String(documentId),
+        action: 'user_validation_failed',
+        user_id: null,
+        details: {
+          email,
+          success: false,
+        },
+      });
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    // Insert audit log entry for successful validation (as request activity)
+    await auditLogService.insert({
+      entity_type: 'request',
+      entity_id: String(documentId),
+      action: 'user_validated_for_review',
+      user_id: user.id,
+      details: {
+        email: user.email,
+        username: user.username,
+      },
+    });
+
+    return res.json({
+      username: user.username,
+      email: user.email,
+      status: 'verified',
+    });
+  } catch (err) {
+    console.error('User validateForDocument error:', err);
+    res.status(500).json({ error: 'Failed to validate user for document' });
+  }
+}
+
+module.exports = { list, getById, create, validateForDocument };

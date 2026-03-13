@@ -438,6 +438,54 @@ Create a new user. Used by the Admin Dashboard **Add New User** flow and for see
 
 ---
 
+### POST /api/users/validate-for-document
+
+Secondary verification endpoint to confirm that a user (by **email + password**) is valid before performing critical actions (e.g. **review/approve** from the Document Library). This endpoint also writes an entry to `audit_logs` for the associated **request**, so it appears in `GET /api/requests/:id/activity` (View Activity).
+
+**Auth required:** Yes
+
+**Request body (JSON):**
+
+| Field      | Type   | Required | Description                                      |
+|------------|--------|----------|--------------------------------------------------|
+| email      | string | Yes      | User email address                               |
+| password   | string | Yes      | User password (plain text; compared via bcrypt) |
+| documentId | string | Yes      | Request ID (UUID) from Document Library UI       |
+
+**Example request:**
+
+```json
+{
+  "email": "reviewer@example.com",
+  "password": "ReviewerPass123",
+  "documentId": "doc-2026-0001"
+}
+```
+
+**Success (200):** User verified; audit log entry written with:
+
+- `entity_type = "request"`
+- `entity_id = documentId` (the request UUID)
+- `action = "user_validated_for_review"`
+- `details` containing `username` and `email`
+
+```json
+{
+  "username": "reviewer1",
+  "email": "reviewer@example.com",
+  "status": "verified"
+}
+```
+
+**Errors:**
+
+- `400` – `{ "error": "email, password, and documentId are required" }`
+- `401` – `{ "error": "Invalid email or password" }` (also logs `user_validation_failed` to `audit_logs` for that request)
+- `401` – Missing/invalid token
+- `500` – `{ "error": "Failed to validate user for document" }`
+
+---
+
 ## 6. Templates
 
 ### GET /api/templates
