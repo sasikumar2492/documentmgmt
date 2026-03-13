@@ -50,16 +50,17 @@ async function create(req, res) {
 
 /**
  * Secondary verification endpoint used before review/approve actions from Document Library.
- * Body: { email, password, documentId }. When valid, logs to audit_logs and returns { username, email, status }.
+ * Body: { identifier, password, documentId }. identifier can be username OR email.
+ * When valid, logs to audit_logs and returns { username, email, status }.
  */
 async function validateForDocument(req, res) {
   try {
-    const { email, password, documentId } = req.body || {};
-    if (!email || !password || !documentId) {
-      return res.status(400).json({ error: 'email, password, and documentId are required' });
+    const { identifier, password, documentId } = req.body || {};
+    if (!identifier || !password || !documentId) {
+      return res.status(400).json({ error: 'identifier, password, and documentId are required' });
     }
 
-    const user = await userService.validateByEmailAndPassword(email, password);
+    const user = await userService.validateByIdentifierAndPassword(identifier, password);
     if (!user) {
       // Log failed attempt as request activity so it appears in View Activity
       await auditLogService.insert({
@@ -68,7 +69,7 @@ async function validateForDocument(req, res) {
         action: 'user_validation_failed',
         user_id: null,
         details: {
-          email,
+          identifier,
           success: false,
         },
       });
@@ -98,4 +99,4 @@ async function validateForDocument(req, res) {
   }
 }
 
-module.exports = { list, getById, create, validateForDocument };
+module.exports = { list, create, validateForDocument };

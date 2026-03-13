@@ -104,18 +104,19 @@ async function create({ username, password, full_name, email, role, department_i
 }
 
 /**
- * Validate a user by email and password. Returns basic user info when valid, otherwise null.
+ * Validate a user by login identifier (email OR username) and password.
+ * Returns basic user info when valid, otherwise null.
  * This is used for secondary verification before critical actions (e.g. review/approve from Document Library).
  */
-async function validateByEmailAndPassword(email, password) {
-  if (!email || !password) return null;
+async function validateByIdentifierAndPassword(identifier, password) {
+  if (!identifier || !password) return null;
   const client = await pool.connect();
   try {
     const result = await client.query(
       `SELECT id, username, full_name, email, password_hash
        FROM users
-       WHERE email = $1`,
-      [email]
+       WHERE email = $1 OR username = $1`,
+      [identifier]
     );
     const row = result.rows[0];
     if (!row) return null;
@@ -132,4 +133,4 @@ async function validateByEmailAndPassword(email, password) {
   }
 }
 
-module.exports = { list, getById, create, validateByEmailAndPassword };
+module.exports = { list, getById, create, validateByIdentifierAndPassword };

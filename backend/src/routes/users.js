@@ -8,6 +8,5 @@ router.use(authMiddleware);
 router.get('/', userController.list);
 router.post('/', userController.create);
 router.post('/validate-for-document', userController.validateForDocument);
-router.get('/:id', userController.getById);
 
 module.exports = router;

@@ -20,7 +20,7 @@ All endpoints currently implemented and available for the frontend and Postman. 
 | 7 | GET | /api/dashboard/summary | Yes | Dashboard: requestCountsByStatus, recentRequests, recentTemplates, documentTotals |
 | 8 | GET | /api/departments | Yes | List departments |
 | 9 | GET | /api/users | Yes | List users |
-| 10 | GET | /api/users/:id | Yes | Get single user (used to validate reviewer/approver before review/approve in Document Library) |
+| 10 | POST /api/users/validate-for-document |
 | 11 | GET | /api/templates | Yes | List templates |
 | 11 | GET | /api/templates/:id | Yes | Get template |
 | 12 | GET | /api/templates/:id/file | Yes | Template file stream (binary) |
@@ -355,36 +355,6 @@ List users (for assignee/reviewer selection and Admin User Management).
 
 ---
 
-### GET /api/users/:id
-
-Get a single user by ID. This is intended for **validation before review/approve actions** in the Document Library: call this endpoint with the reviewer/approver user ID and proceed only if the user exists.
-
-**Auth required:** Yes
-
-**Path:** `:id` is the user UUID.
-
-**Success (200):**
-
-```json
-{
-  "id": "uuid",
-  "username": "john",
-  "fullName": "John Doe",
-  "email": "john.doe@example.com",
-  "role": "reviewer",
-  "departmentId": "uuid-or-null",
-  "departmentName": "Quality Assurance"
-}
-```
-
-**Errors:**
-
-- `401` – Missing/invalid token
-- `404` – `{ "error": "User not found" }` (frontend should show validation message and **not** call review/approve API)
-- `500` – `{ "error": "Failed to get user" }`
-
----
-
 ### POST /api/users
 
 Create a new user. Used by the Admin Dashboard **Add New User** flow and for seeding via Postman.
@@ -440,23 +410,23 @@ Create a new user. Used by the Admin Dashboard **Add New User** flow and for see
 
 ### POST /api/users/validate-for-document
 
-Secondary verification endpoint to confirm that a user (by **email + password**) is valid before performing critical actions (e.g. **review/approve** from the Document Library). This endpoint also writes an entry to `audit_logs` for the associated **request**, so it appears in `GET /api/requests/:id/activity` (View Activity).
+Secondary verification endpoint to confirm that a user (by **username OR email + password**) is valid before performing critical actions (e.g. **review/approve** from the Document Library). This endpoint also writes an entry to `audit_logs` for the associated **request**, so it appears in `GET /api/requests/:id/activity` (View Activity).
 
 **Auth required:** Yes
 
 **Request body (JSON):**
 
-| Field      | Type   | Required | Description                                      |
-|------------|--------|----------|--------------------------------------------------|
-| email      | string | Yes      | User email address                               |
-| password   | string | Yes      | User password (plain text; compared via bcrypt) |
-| documentId | string | Yes      | Request ID (UUID) from Document Library UI       |
+| Field      | Type   | Required | Description                                                  |
+|------------|--------|----------|--------------------------------------------------------------|
+| identifier | string | Yes      | Username **or** email entered in the UI                     |
+| password   | string | Yes      | User password (plain text; compared via bcrypt)             |
+| documentId | string | Yes      | Request ID (UUID) from Document Library UI (activity scope) |
 
 **Example request:**
 
 ```json
 {
-  "email": "reviewer@example.com",
+  "identifier": "reviewer@example.com",
   "password": "ReviewerPass123",
   "documentId": "doc-2026-0001"
 }
@@ -479,7 +449,7 @@ Secondary verification endpoint to confirm that a user (by **email + password**)
 
 **Errors:**
 
-- `400` – `{ "error": "email, password, and documentId are required" }`
+- `400` – `{ "error": "identifier, password, and documentId are required" }`
 - `401` – `{ "error": "Invalid email or password" }` (also logs `user_validation_failed` to `audit_logs` for that request)
 - `401` – Missing/invalid token
 - `500` – `{ "error": "Failed to validate user for document" }`
@@ -1500,7 +1470,7 @@ All completed APIs. Base URL: `/api`. Auth = Bearer token (except login, health,
 | GET | /api/dashboard/summary | Yes | Dashboard summary (counts, recent requests/templates, documentTotals) |
 | GET | /api/departments | Yes | List departments |
 | GET | /api/users | Yes | List users |
-| GET | /api/users/:id | Yes | Get single user (used to validate reviewer/approver before review/approve in Document Library) |
+| GET | /api/users/:id | No  | **Deprecated** – use POST /api/users/validate-for-document instead |
 | GET | /api/templates | Yes | List templates |
 | GET | /api/templates/:id | Yes | Get template |
 | GET | /api/templates/:id/file | Yes | Template file stream |

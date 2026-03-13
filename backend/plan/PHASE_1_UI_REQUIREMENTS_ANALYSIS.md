@@ -344,7 +344,6 @@ This is a first-pass list of resources and endpoints inferred from the UI. Exact
 - Users:
   - `GET /users`
   - `POST /users`
-  - `GET /users/:id`
   - `PATCH /users/:id`
   - `DELETE /users/:id` (soft)
 - Roles & Permissions:
