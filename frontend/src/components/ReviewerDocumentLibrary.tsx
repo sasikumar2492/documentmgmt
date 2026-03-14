@@ -351,10 +351,7 @@ export const ReviewerDocumentLibrary: React.FC<ReviewerDocumentLibraryProps> = (
           <div>
             <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">
               Document Library
-            </h1>
-            <p className="text-slate-600 mt-1">
-              Manage and review approval requests (Submitted, Resubmitted, Need Revision, Reviewed, Rejected)
-            </p>
+            </h1>           
           </div>
         </div>
       </div>
@@ -416,48 +413,7 @@ export const ReviewerDocumentLibrary: React.FC<ReviewerDocumentLibraryProps> = (
         </CardContent>
       </Card>
 
-      {/* Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        {/* Reviewer Action Required Card */}
-        <Card className="border-blue-200 shadow-lg hover:shadow-xl transition-shadow">
-          <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50">
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-blue-700 flex items-center gap-2">
-                  <AlertCircle className="h-5 w-5" />
-                  Reviewer Core Set
-                </CardTitle>
-                <CardDescription className="text-blue-600">
-                  Requests: Submitted, Resubmitted, Need Revision, Reviewed, Rejected
-                </CardDescription>
-              </div>
-              <div className="text-3xl font-bold text-blue-700">
-                {reviewerPending.length}
-              </div>
-            </div>
-          </CardHeader>
-        </Card>
-
-        {/* View Only Card */}
-        <Card className="border-slate-200 shadow-lg hover:shadow-xl transition-shadow">
-          <CardHeader className="bg-gradient-to-r from-slate-50 to-gray-50">
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-slate-700 flex items-center gap-2">
-                  <CheckCircle className="h-5 w-5" />
-                  Historical / System
-                </CardTitle>
-                <CardDescription className="text-slate-600">
-                  Approved, Pending, and Draft records
-                </CardDescription>
-              </div>
-              <div className="text-3xl font-bold text-slate-700">
-                {otherDocuments.length}
-              </div>
-            </div>
-          </CardHeader>
-        </Card>
-      </div>
+      
 
       {/* Tabs for Pending and Other Reviews */}
       <Card className="border-slate-200 shadow-lg">

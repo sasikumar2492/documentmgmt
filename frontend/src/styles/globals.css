@@ -1230,3 +1230,261 @@ html {
 img[alt="FedHub"] {
   object-fit: contain;
 }
+
+/* When document editor is mounted: lock viewport so only Smart Navigator, document, and Changes pane scroll */
+html.document-editor-active {
+  overflow: hidden !important;
+  height: 100% !important;
+}
+html.document-editor-active body {
+  overflow: hidden !important;
+}
+
+/* Syncfusion Document Editor: track changes list – ensure vertical scrollbar is visible */
+.e-de-tc-hide-para-mark,
+#e-de-tc-pane-revision {
+  overflow-y: scroll !important;
+  overflow-x: hidden !important;
+  scrollbar-gutter: stable;
+}
+.e-de-tc-hide-para-mark::-webkit-scrollbar,
+#e-de-tc-pane-revision::-webkit-scrollbar {
+  width: 12px;
+}
+.e-de-tc-hide-para-mark::-webkit-scrollbar-track,
+#e-de-tc-pane-revision::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+.e-de-tc-hide-para-mark::-webkit-scrollbar-thumb,
+#e-de-tc-pane-revision::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 6px;
+}
+.e-de-tc-hide-para-mark::-webkit-scrollbar-thumb:hover,
+#e-de-tc-pane-revision::-webkit-scrollbar-thumb:hover {
+  background: #a1a1a1;
+}
+
+/* ================================
+ * Syncfusion Track Changes Sidebar
+ * ================================
+ * Make the CHANGES sidebar full-height, scrollable, and visually clean.
+ * Structure fix: only the change list scrolls; Comments/Changes tab and
+ * User/View toolbar stay fixed at the top.
+ */
+
+/* Lock review pane so it never scrolls as a whole (override Syncfusion’s overflow: auto) */
+/* Prevent the Syncfusion editor (document pane) from scrolling; only inner document content and Changes list scroll */
+#edit-screen-syncfusion-editor .e-de-splitter,
+#request-syncfusion-editor .e-de-splitter {
+  overflow: hidden !important;
+}
+#edit-screen-syncfusion-editor .e-de-splitter-pane:first-child,
+#request-syncfusion-editor .e-de-splitter-pane:first-child {
+  overflow: hidden !important;
+  min-height: 0 !important;
+}
+/* Middle content (Syncfusion document pane): hide scrollbar so it appears fixed; document still scrolls via mouse or Smart Navigator */
+#edit-screen-syncfusion-editor .e-de-splitter-pane:first-child,
+#edit-screen-syncfusion-editor .e-de-splitter-pane:first-child > *,
+#request-syncfusion-editor .e-de-splitter-pane:first-child,
+#request-syncfusion-editor .e-de-splitter-pane:first-child > * {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+#edit-screen-syncfusion-editor .e-de-splitter-pane:first-child::-webkit-scrollbar,
+#edit-screen-syncfusion-editor .e-de-splitter-pane:first-child > *::-webkit-scrollbar,
+#request-syncfusion-editor .e-de-splitter-pane:first-child::-webkit-scrollbar,
+#request-syncfusion-editor .e-de-splitter-pane:first-child > *::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+/* Hide scrollbar on any nested scrollable element inside the document pane */
+#edit-screen-syncfusion-editor .e-de-splitter-pane:first-child *,
+#request-syncfusion-editor .e-de-splitter-pane:first-child * {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+#edit-screen-syncfusion-editor .e-de-splitter-pane:first-child *::-webkit-scrollbar,
+#request-syncfusion-editor .e-de-splitter-pane:first-child *::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* Middle pane: Syncfusion editor viewer container – fixed, no scroll (navigation via Smart Navigator) */
+#edit-screen-syncfusion-editor_editor_viewerContainer,
+#request-syncfusion-editor_editor_viewerContainer {
+  overflow: hidden !important;
+}
+
+/* Lock review pane so it never scrolls as a whole (override Syncfusion overflow: auto) */
+#edit-screen-syncfusion-editor .e-de-review-pane,
+#request-syncfusion-editor .e-de-review-pane,
+.e-de-review-pane {
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
+  min-height: 0 !important;
+}
+
+/* Tab control inside review pane: fill height, no scroll */
+#edit-screen-syncfusion-editor .e-de-review-pane .e-de-property-tab,
+#edit-screen-syncfusion-editor .e-de-review-pane .e-control.e-tab,
+#request-syncfusion-editor .e-de-review-pane .e-de-property-tab,
+#request-syncfusion-editor .e-de-review-pane .e-control.e-tab,
+.e-de-review-pane .e-de-property-tab,
+.e-de-review-pane .e-control.e-tab {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  height: 100% !important;
+}
+
+/* Tab header (Comments | Changes) – fixed at top */
+.e-de-review-pane .e-tab-header {
+  flex: 0 0 auto !important;
+}
+
+/* Tab content wrapper – takes remaining space */
+.e-de-review-pane .e-content {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+/* Active tab panel (Changes content) – fill and pass flex to .e-de-tc-pane */
+.e-de-review-pane .e-content .e-item.e-active,
+.e-tab .e-content > .e-item.e-active {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
+}
+
+/* Sidebar container (root CHANGES pane) */
+#edit-screen-syncfusion-editor .e-de-tc-pane,
+#request-syncfusion-editor .e-de-tc-pane,
+.e-de-tc-pane {
+  background: #f9fafb !important; /* slate-50 */
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: 100% !important;
+  border-left: 1px solid #e5e7eb !important; /* slate-200 */
+}
+
+/* Toolbar at the top of CHANGES pane */
+#edit-screen-syncfusion-editor .e-de-tc-pane .e-de-track-toolbar,
+#request-syncfusion-editor .e-de-tc-pane .e-de-track-toolbar,
+.e-de-tc-pane .e-de-track-toolbar {
+  flex: 0 0 auto !important;
+  border-bottom: 1px solid #e5e7eb !important;
+  background: #f9fafb !important;
+  padding-inline: 0.5rem !important;
+}
+
+/* Scrollable area that holds revision cards – only this section scrolls */
+#edit-screen-syncfusion-editor .e-de-tc-pane .e-de-tc-hide-para-mark#e-de-tc-pane-revision,
+#request-syncfusion-editor .e-de-tc-pane .e-de-tc-hide-para-mark#e-de-tc-pane-revision,
+.e-de-tc-pane .e-de-tc-hide-para-mark#e-de-tc-pane-revision {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  padding: 0.75rem 0.5rem 2rem 0.75rem !important;
+  background: transparent !important;
+  scrollbar-width: thin;
+}
+
+.e-de-tc-pane .e-de-tc-hide-para-mark#e-de-tc-pane-revision::-webkit-scrollbar {
+  width: 6px;
+}
+.e-de-tc-pane .e-de-tc-hide-para-mark#e-de-tc-pane-revision::-webkit-scrollbar-track {
+  background: rgba(241, 245, 249, 0.9); /* slate-100 */
+}
+.e-de-tc-pane .e-de-tc-hide-para-mark#e-de-tc-pane-revision::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.7); /* slate-400 */
+  border-radius: 9999px;
+}
+.e-de-tc-pane .e-de-tc-hide-para-mark#e-de-tc-pane-revision::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.9); /* slate-500 */
+}
+
+/* Individual revision card */
+.e-de-tc-outer {
+  border-radius: 0.75rem !important; /* rounded-xl */
+  border: 1px solid #e5e7eb !important; /* slate-200 */
+  background: #ffffff !important;
+  margin-bottom: 0.5rem !important;
+  padding: 0.5rem 0.75rem !important;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.04) !important; /* subtle shadow */
+  transition: box-shadow 0.15s ease, transform 0.15s ease,
+    border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.e-de-tc-outer:hover {
+  border-color: #bfdbfe !important; /* blue-200 */
+  background: #f9fafb !important;
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.06) !important;
+  transform: translateY(-1px);
+}
+
+/* Selected revision card */
+.e-de-trckchanges-inner-select .e-de-tc-outer,
+.e-de-tc-outer.e-de-tc-sel {
+  border-color: #3b82f6 !important; /* blue-500 */
+  box-shadow: 0 10px 25px rgba(59, 130, 246, 0.18) !important;
+  background: linear-gradient(135deg, #eff6ff 0%, #ffffff 40%, #eff6ff 100%) !important;
+}
+
+/* Header row inside each card: user + page badge + time */
+.e-de-track-usernme-div {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 0.5rem !important;
+  margin-bottom: 0.25rem !important;
+}
+
+.e-de-track-usernme-div span {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  color: #0f172a !important; /* slate-900 */
+}
+
+/* Our injected page badge ("Page N") */
+.fed-page-badge {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  background: rgba(59, 130, 246, 0.1); /* blue-500/10 */
+  color: #1d4ed8; /* blue-700 */
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Change summary / body text */
+.e-de-track-chng-row {
+  font-size: 11px !important;
+  line-height: 1.5 !important;
+  color: #4b5563 !important; /* slate-600 */
+}
+
+/* Time / metadata row, usually lighter text */
+.e-de-track-chng-time {
+  font-size: 10px !important;
+  color: #9ca3af !important; /* slate-400 */
+  margin-top: 2px !important;
+}

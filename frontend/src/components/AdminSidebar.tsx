@@ -66,7 +66,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
     },
     { 
       id: 'document-management', 
-      label: 'AI Conversion', 
+      label: 'Document Upload', 
       icon: Sparkles,
       isAI: true,
       gradient: 'from-blue-600 via-purple-600 to-indigo-600',

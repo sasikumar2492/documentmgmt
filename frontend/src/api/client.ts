@@ -32,8 +32,16 @@ apiClient.interceptors.request.use((config) => {
 apiClient.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401 && onUnauthorized) {
-      onUnauthorized();
+    if (err.response?.status === 401) {
+      const url: string | undefined = err.config?.url;
+      const isValidationEndpoint =
+        typeof url === 'string' && url.includes('/users/validate-for-document');
+
+      // For the secondary validation popup, a 401 should NOT log the user out;
+      // just surface the error to the caller so it can show a toast.
+      if (!isValidationEndpoint && onUnauthorized) {
+        onUnauthorized();
+      }
     }
     return Promise.reject(err);
   }

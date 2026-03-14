@@ -62,8 +62,6 @@ export interface SyncfusionRequestEditorProps {
   initialSfdt?: string | null;
   /** Download current document as Word; called with current SFDT so parent can export and trigger download */
   onDownload?: (sfdt: string) => void | Promise<void>;
-  /** Called when the user edits content; receives the 0-based page index that was updated (Syncfusion contentChange + getCurrentPageNumber) */
-  onPageUpdated?: (pageIndex: number) => void;
 }
 
 /**
@@ -178,7 +176,7 @@ function updateHeaderFieldsForStatus(sfdt: string, documentStatus: string): stri
     }
 
     const headerValues = {
-      versionNo: APP_VERSION,
+      // versionNo: APP_VERSION,
       revisionDate: new Date().toLocaleDateString(),
     };
     console.log('HeaderUpdate: applying headerValues:', headerValues);
@@ -212,7 +210,6 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
   onViewActivity,
   initialSfdt,
   onDownload,
-  onPageUpdated,
 }) => {
   const [sfdt, setSfdt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -222,8 +219,55 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
   const [activePageIndex, setActivePageIndex] = useState(0);
   const containerRef = useRef<DocumentEditorContainerComponent>(null);
   const sfdtRef = useRef<string | null>(null);
-  const onPageUpdatedRef = useRef(onPageUpdated);
-  onPageUpdatedRef.current = onPageUpdated;
+  const [showHistory, setShowHistory] = useState(false);
+  const initialScrollDoneRef = useRef(false);
+  const scrollLockUntilRef = useRef(0);
+
+  // Prevent any page scroll: fix body and html so only the editor/panes scroll
+  useEffect(() => {
+    const scrollY = window.scrollY;
+    const prevBody = {
+      position: document.body.style.position,
+      top: document.body.style.top,
+      left: document.body.style.left,
+      right: document.body.style.right,
+      width: document.body.style.width,
+      overflow: document.body.style.overflow,
+    };
+    document.documentElement.classList.add('document-editor-active');
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.left = '0';
+    document.body.style.right = '0';
+    document.body.style.width = '100%';
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.documentElement.classList.remove('document-editor-active');
+      document.body.style.position = prevBody.position;
+      document.body.style.top = prevBody.top;
+      document.body.style.left = prevBody.left;
+      document.body.style.right = prevBody.right;
+      document.body.style.width = prevBody.width;
+      document.body.style.overflow = prevBody.overflow;
+      window.scrollTo(0, scrollY);
+    };
+  }, []);
+
+  // Reset any scroll that Syncfusion triggers; lock is extended on each contentChange
+  useEffect(() => {
+    scrollLockUntilRef.current = Date.now() + 5000;
+    const onScroll = () => {
+      if (Date.now() > scrollLockUntilRef.current) return;
+      if (window.scrollY === 0 && document.documentElement.scrollTop === 0 && document.body.scrollTop === 0) return;
+      requestAnimationFrame(() => {
+        window.scrollTo(0, 0);
+        document.documentElement.scrollTop = 0;
+        document.body.scrollTop = 0;
+      });
+    };
+    window.addEventListener('scroll', onScroll, true);
+    return () => window.removeEventListener('scroll', onScroll, true);
+  }, []);
 
   useEffect(() => {
     if (initialSfdt && initialSfdt.length > 0) {
@@ -243,13 +287,24 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
     if (!sfdt) return;
     const content = sfdtRef.current || sfdt;
     const tryOpen = () => {
-      const editor = containerRef.current?.documentEditor;
+      const editor = containerRef.current?.documentEditor as any;
       if (editor && content && typeof editor.open === 'function') {
         try {
           editor.open(content);
-          (editor as any).zoomFactor = 1.0;
-          const count = (editor as any)?.pageCount ?? 1;
+          editor.zoomFactor = 1.0;
+          editor.enableTrackChanges = true;
+          editor.currentUser = (currentUserName || 'User').trim() || 'User';
+          const count = editor?.pageCount ?? 1;
           setPageCount(typeof count === 'number' && count > 0 ? count : 1);
+          // New document load: we will re-apply an initial scroll-to-top later
+          initialScrollDoneRef.current = false;
+          // After a short delay, force the view to the very top once
+          setTimeout(() => {
+            if (!initialScrollDoneRef.current) {
+              scrollMainEditorToTop(editor);
+              initialScrollDoneRef.current = true;
+            }
+          }, 400);
         } catch (_) {}
       }
     };
@@ -260,18 +315,6 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
       clearTimeout(t2);
     };
   }, [sfdt]);
-
-  // Apply zoom to Syncfusion document editor when zoom state changes
-  useEffect(() => {
-    const editor = containerRef.current?.documentEditor as any;
-    if (!editor) return;
-    const factor = Math.max(0.1, Math.min(5, zoom / 100));
-    if (typeof editor.zoomFactor !== 'undefined') {
-      editor.zoomFactor = factor;
-    } else if (typeof editor.setZoomFactor === 'function') {
-      editor.setZoomFactor(factor);
-    }
-  }, [zoom]);
 
   // Inject CSS to ensure proper layout and prevent overflow
   useEffect(() => {
@@ -291,20 +334,29 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
         height: 100% !important;
         overflow: hidden !important;
       }
-      #request-syncfusion-editor .e-de-pane {
-        display: none !important;
-        width: 0 !important;
-      }
-      #request-syncfusion-editor .e-de-properties-pane {
-        display: none !important;
-        width: 0 !important;
-      }
       #request-syncfusion-editor .e-de-splitter.e-de-splitter-horizontal {
         gap: 0 !important;
       }
       #request-syncfusion-editor .e-de-splitter-pane {
         border: none !important;
         padding: 0 !important;
+      }
+      /* When history is closed, completely hide the review / track-changes pane */
+      #request-syncfusion-editor.fed-history-closed .e-de-review-pane,
+      #request-syncfusion-editor.fed-history-closed .e-de-tc-pane {
+        display: none !important;
+        width: 0 !important;
+        max-width: 0 !important;
+      }
+      /* When history is open, allow the review pane to be visible and styled */
+      #request-syncfusion-editor.fed-history-open .e-de-review-pane,
+      #request-syncfusion-editor.fed-history-open .e-de-tc-pane {
+        display: flex !important;
+      }
+      /* Hide Accept / Reject buttons in the CHANGES list */
+      #request-syncfusion-editor .e-de-track-accept-button,
+      #request-syncfusion-editor .e-de-track-reject-button {
+        display: none !important;
       }
       #request-syncfusion-editor .e-de-statusbar-zoom.e-control.e-dropdown-btn.e-lib.e-btn {
         font-size: 12px !important;
@@ -313,6 +365,102 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
       #request-syncfusion-editor .e-de-statusbar-zoom .e-btn-content::before {
         content: '100%' !important;
       }
+      /* Track changes sidebar container */
+      #request-syncfusion-editor .e-de-tc-pane {
+        display: flex !important;
+        flex-direction: column !important;
+        height: 100% !important;
+        max-height: 100vh !important;
+        background: #f9fafb !important; /* slate-50 */
+        border-left: 1px solid #e5e7eb !important; /* slate-200 */
+      }
+      /* Track changes toolbar */
+      #request-syncfusion-editor .e-de-tc-pane .e-de-track-toolbar {
+        flex: 0 0 auto !important;
+        border-bottom: 1px solid #e5e7eb !important;
+        background: #f9fafb !important;
+        padding-inline: 8px !important;
+      }
+      /* Scrollable list area */
+      #request-syncfusion-editor .e-de-tc-pane .e-de-tc-hide-para-mark#e-de-tc-pane-revision {
+        flex: 1 1 auto !important;
+        height: 100% !important;
+        max-height: 100% !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        /* Extra bottom padding so the last change card is fully visible when scrolled */
+        padding: 12px 8px 32px 12px !important;
+        background: transparent !important;
+      }
+      #request-syncfusion-editor .e-de-tc-pane .e-de-tc-hide-para-mark#e-de-tc-pane-revision::-webkit-scrollbar {
+        width: 6px;
+      }
+      #request-syncfusion-editor .e-de-tc-pane .e-de-tc-hide-para-mark#e-de-tc-pane-revision::-webkit-scrollbar-track {
+        background: rgba(241, 245, 249, 0.9); /* slate-100 */
+      }
+      #request-syncfusion-editor .e-de-tc-pane .e-de-tc-hide-para-mark#e-de-tc-pane-revision::-webkit-scrollbar-thumb {
+        background: rgba(148, 163, 184, 0.7); /* slate-400 */
+        border-radius: 9999px;
+      }
+      #request-syncfusion-editor .e-de-tc-pane .e-de-tc-hide-para-mark#e-de-tc-pane-revision::-webkit-scrollbar-thumb:hover {
+        background: rgba(100, 116, 139, 0.9); /* slate-500 */
+      }
+      /* Revision "card" */
+      #request-syncfusion-editor .e-de-tc-outer {
+        border-radius: 12px !important;
+        border: 1px solid #e5e7eb !important;
+        background: #ffffff !important;
+        margin-bottom: 8px !important;
+        padding: 8px 12px !important;
+        box-shadow: 0 4px 10px rgba(15, 23, 42, 0.04) !important;
+        transition: box-shadow 0.15s ease, transform 0.15s ease,
+          border-color 0.15s ease, background-color 0.15s ease;
+      }
+      #request-syncfusion-editor .e-de-tc-outer:hover {
+        border-color: #bfdbfe !important; /* blue-200 */
+        background: #f9fafb !important;
+        box-shadow: 0 10px 20px rgba(15, 23, 42, 0.06) !important;
+        transform: translateY(-1px);
+      }
+      /* Header row: user + page badge */
+      #request-syncfusion-editor .e-de-track-usernme-div {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        gap: 8px !important;
+        margin-bottom: 4px !important;
+      }
+      #request-syncfusion-editor .e-de-track-usernme-div span {
+        font-size: 11px !important;
+        font-weight: 600 !important;
+        color: #0f172a !important; /* slate-900 */
+      }
+      /* Our injected page badge */
+      #request-syncfusion-editor .fed-page-badge {
+        margin-left: 8px;
+        padding: 2px 8px;
+        border-radius: 9999px;
+        background: rgba(59, 130, 246, 0.12); /* blue-500/10 */
+        color: #1d4ed8; /* blue-700 */
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      /* Change summary / body text */
+      #request-syncfusion-editor .e-de-track-chng-row,
+      #request-syncfusion-editor .e-de-track-chngs-text {
+        font-size: 11px !important;
+        line-height: 1.5 !important;
+        color: #4b5563 !important; /* slate-600 */
+      }
+      /* Time / metadata row */
+      #request-syncfusion-editor .e-de-track-date,
+      #request-syncfusion-editor .e-de-track-chng-time {
+        font-size: 10px !important;
+        color: #9ca3af !important; /* slate-400 */
+        margin-top: 2px !important;
+      }
     `;
     document.head.appendChild(style);
     return () => {
@@ -320,6 +468,169 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
       if (existingStyle) document.head.removeChild(existingStyle);
     };
   }, []);
+
+  /**
+   * Update the CHANGES list so the current (latest) item shows the page
+   * next to the user name while typing.
+   */
+  const labelLastRevisionWithPage = (rootId: string, pageIndex: number) => {
+    try {
+      const container = document.getElementById(rootId);
+      if (!container) return;
+
+      const reviewPane = container.querySelector('.e-de-tc-pane');
+      if (!reviewPane) return;
+
+      const selectedInner = reviewPane.querySelector(
+        '.e-de-trckchanges-inner-select'
+      ) as HTMLElement | null;
+      const card = (selectedInner?.closest('.e-de-tc-outer') ||
+        reviewPane.querySelector('.e-de-tc-outer:last-of-type')) as
+        | HTMLElement
+        | null;
+      if (!card) return;
+
+      const header = card.querySelector(
+        '.e-de-track-usernme-div'
+      ) as HTMLElement | null;
+      if (!header) return;
+
+      let badge = header.querySelector('.fed-page-badge') as HTMLElement | null;
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'fed-page-badge';
+        header.appendChild(badge);
+      }
+      badge.textContent = `Page ${pageIndex + 1}`;
+    } catch {
+      // Non-blocking UI enhancement
+    }
+  };
+
+  /**
+   * Keep the track-changes list scrolled to the TOP on initial load.
+   * We call this once when history is opened or the document first finishes
+   * laying out, but we do NOT keep forcing it while the user scrolls.
+   */
+  const resetChangesPaneScrollTop = (rootId: string) => {
+    try {
+      const container = document.getElementById(rootId);
+      if (!container) return;
+      const pane = container.querySelector(
+        '.e-de-tc-pane .e-de-tc-hide-para-mark#e-de-tc-pane-revision'
+      ) as HTMLElement | null;
+      if (!pane) return;
+      pane.scrollTop = 0;
+    } catch {
+      // Visual-only helper; ignore failures
+    }
+  };
+
+  /**
+   * Ensure the main document view is scrolled to the very top (header visible).
+   * Uses selection APIs so Syncfusion scrolls the start of the document into view.
+   */
+  const scrollMainEditorToTop = (editor: any) => {
+    try {
+      if (editor?.selection && typeof editor.selection.moveToDocumentStart === 'function') {
+        editor.selection.moveToDocumentStart();
+      }
+      if (typeof editor.scrollToPage === 'function') {
+        editor.scrollToPage(1);
+      }
+    } catch {
+      // Visual helper only; ignore failures
+    }
+  };
+
+  /**
+   * After a document is opened, walk all revisions, capture their page index,
+   * and then annotate each CHANGES card with "Page N". This runs on load so
+   * page numbers are restored when reopening drafts.
+   */
+  const annotateChangesPaneWithPages = (
+    rootId: string,
+    pageMap: Map<number, number>
+  ) => {
+    const container = document.getElementById(rootId);
+    if (!container) return;
+
+    const reviewPane = container.querySelector('.e-de-tc-pane');
+    if (!reviewPane) return;
+
+    const cards = reviewPane.querySelectorAll('.e-de-tc-outer');
+    cards.forEach((card, idx) => {
+      const header = (card as HTMLElement).querySelector(
+        '.e-de-track-usernme-div'
+      ) as HTMLElement | null;
+      if (!header) return;
+
+      let badge = header.querySelector('.fed-page-badge') as HTMLElement | null;
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'fed-page-badge';
+        header.appendChild(badge);
+      }
+
+      const pageIndex = pageMap.get(idx);
+      if (pageIndex != null) {
+        badge.textContent = `Page ${pageIndex + 1}`;
+      }
+    });
+  };
+
+  const recomputeRevisionPages = (editor: any, rootId: string) => {
+    try {
+      const revisions = editor?.revisions;
+      if (!revisions || typeof revisions.get !== 'function') return;
+
+      // Remember the current page so we can restore it after
+      const originalPageNum =
+        editor.selection?.startPage ?? editor.selection?.endPage ?? 1;
+
+      const count =
+        typeof revisions.length === 'number'
+          ? revisions.length
+          : typeof revisions.getCount === 'function'
+          ? revisions.getCount()
+          : 0;
+      if (!count || count <= 0) return;
+
+      const pageMap = new Map<number, number>();
+
+      for (let i = 0; i < count; i++) {
+        const rev = revisions.get(i);
+        if (!rev || typeof rev.select !== 'function') continue;
+
+        try {
+          // Select this revision so selection.startPage reflects it
+          rev.select();
+          const pageNum =
+            editor.selection?.startPage ?? editor.selection?.endPage ?? 1;
+          const pageIndex = Math.max(
+            0,
+            (typeof pageNum === 'number' ? pageNum : 1) - 1
+          );
+          pageMap.set(i, pageIndex);
+        } catch {
+          // Skip problematic revision; continue others
+        }
+      }
+
+      annotateChangesPaneWithPages(rootId, pageMap);
+
+      // Restore the original page so initial load stays where the user expects
+      if (
+        typeof originalPageNum === 'number' &&
+        originalPageNum > 0 &&
+        typeof editor.scrollToPage === 'function'
+      ) {
+        editor.scrollToPage(originalPageNum);
+      }
+    } catch {
+      // Best-effort only; ignore failures
+    }
+  };
 
   const handleSaveDraft = () => {
     const editor = containerRef.current?.documentEditor;
@@ -346,19 +657,54 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
   };
 
   const handleDownload = () => {
-    const editor = containerRef.current?.documentEditor;
+    const editor = containerRef.current?.documentEditor as any;
     if (!editor || !onDownload) return;
+
     try {
-      let serialized = editor.serialize();
-      // Conditionally update header + footer fields before downloading
-      serialized = updateHeaderFieldsForStatus(serialized, status);
-      serialized = updateFooterFieldsBeforeSave(serialized, currentUserName, currentUserRole, status);
-      if (serialized) void Promise.resolve(onDownload(serialized));
+      // Preserve current document with revisions so UI and save behaviour stay the same
+      const originalSfdt = editor.serialize();
+
+      // Apply header + footer updates on a working copy
+      let workingSfdt = updateHeaderFieldsForStatus(originalSfdt, status);
+      workingSfdt = updateFooterFieldsBeforeSave(
+        workingSfdt,
+        currentUserName,
+        currentUserRole,
+        status
+      );
+
+      let sfdtForDownload = workingSfdt;
+
+      try {
+        // Temporarily load working copy, accept all revisions, then serialize clean document
+        editor.open(workingSfdt);
+        if (editor.revisions && typeof editor.revisions.acceptAll === 'function') {
+          editor.revisions.acceptAll();
+        }
+        sfdtForDownload = editor.serialize();
+      } catch {
+        // If anything fails, fall back to working copy (may still contain revisions)
+        sfdtForDownload = workingSfdt;
+      } finally {
+        // Restore original document so user still sees tracked changes in the app
+        try {
+          editor.open(originalSfdt);
+        } catch {
+          // If restore fails, user will simply see the accepted version; data is still safe
+        }
+      }
+
+      void Promise.resolve(onDownload(sfdtForDownload));
     } catch (_) {
       const doc = (editor as any).documentHelper?.serialize?.();
       if (doc) {
         let modified = updateHeaderFieldsForStatus(doc, status);
-        modified = updateFooterFieldsBeforeSave(modified, currentUserName, currentUserRole, status);
+        modified = updateFooterFieldsBeforeSave(
+          modified,
+          currentUserName,
+          currentUserRole,
+          status
+        );
         void Promise.resolve(onDownload(modified));
       }
     }
@@ -390,6 +736,24 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
 
   const handleZoomIn = () => setZoom((p) => Math.min(p + 10, 200));
   const handleZoomOut = () => setZoom((p) => Math.max(p - 10, 50));
+
+  const handleToggleHistory = () => {
+    setShowHistory((prev) => {
+      const next = !prev;
+      const editor = containerRef.current?.documentEditor as any;
+      if (editor) {
+        editor.showRevisions = next;
+        if (next) {
+          // When user explicitly opens history, (re)compute page numbers for revisions
+          setTimeout(() => {
+            recomputeRevisionPages(editor, 'request-syncfusion-editor');
+            resetChangesPaneScrollTop('request-syncfusion-editor');
+          }, 300);
+        }
+      }
+      return next;
+    });
+  };
 
   const sections: FormSection[] = useMemo(
     () =>
@@ -467,9 +831,9 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
 
   const documentEditorServiceUrl = `${apiClient.defaults.baseURL}/document-editor/`;
   return (
-    <div className="h-screen bg-slate-50 text-slate-900 flex flex-col font-sans overflow-hidden">
+    <div className="h-full min-h-0 bg-slate-50 text-slate-900 flex flex-col font-sans overflow-hidden">
       {/* Top Toolbar - match DocumentEditScreen */}
-      <div className="h-16 border-b border-slate-200 bg-white backdrop-blur sticky top-0 z-50 px-6 flex items-center justify-between shadow-sm shrink-0">
+      <div className="h-16 flex-shrink-0 border-b border-slate-200 bg-white backdrop-blur z-50 px-6 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-4">
           <Button
             variant="ghost"
@@ -508,6 +872,15 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
               View Activity
             </Button>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleToggleHistory}
+            className="border-blue-200 text-blue-600 hover:bg-blue-50 font-bold hidden md:flex gap-2 mr-2"
+          >
+            <History className="h-4 w-4" />
+            {showHistory ? 'Hide History' : 'View History'}
+          </Button>
 
           <div className="flex items-center bg-slate-100 rounded-lg p-1 mr-4 hidden md:flex border border-slate-200">
             <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-blue-600" onClick={handleZoomOut}>
@@ -519,7 +892,6 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
             </Button>
           </div>
 
-          {/* Reset button commented out for now
           <Button
             variant="outline"
             size="sm"
@@ -529,7 +901,6 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
             <RotateCcw className="h-4 w-4" />
             Reset
           </Button>
-          */}
 
           <Button
             variant="outline"
@@ -564,7 +935,7 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
         </div>
       </div>
 
-      <div className="flex-1 flex relative overflow-hidden">
+      <div className="flex-1 min-h-0 flex relative overflow-hidden">
         {/* Smart Navigator - left side, same style as DocumentEditScreen */}
         <div className="h-full border-r border-slate-200 bg-white overflow-hidden relative w-80 shrink-0">
           <div className="h-full w-80">
@@ -579,57 +950,69 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
         </div>
 
         {/* Main editor area on the right */}
-        <div
-          className="flex-1 min-h-0 w-full flex flex-col bg-white overflow-hidden"
-          style={{ height: 'calc(100vh - 64px)' }}
-        >
+        <div className="flex-1 min-h-0 w-full flex flex-col bg-white overflow-hidden">
           <DocumentEditorContainerComponent
             ref={containerRef}
             id="request-syncfusion-editor"
+            cssClass={showHistory ? 'fed-history-open' : 'fed-history-closed'}
             style={{ height: '100%', minHeight: '100%' }}
             serviceUrl={documentEditorServiceUrl}
             enableToolbar={true}
             showPropertiesPane={false}
+            enableTrackChanges={true}
             toolbarItems={toolbarItems}
             documentEditorSettings={{ optimizeSfdt: false }}
+            documentChange={() => {
+              const ed = containerRef.current?.documentEditor as any;
+              if (ed) {
+                ed.enableTrackChanges = true;
+                ed.currentUser = (currentUserName || 'User').trim() || 'User';
+                ed.showRevisions = showHistory;
+              }
+            }}
             created={() => {
               const c = containerRef.current;
               const content = sfdtRef.current || sfdt;
               if (c?.documentEditor && content) {
-                const editor = c.documentEditor as any;
                 try {
                   c.documentEditor.open(content);
+                  const editor = c.documentEditor as any;
                   editor.zoomFactor = 1.0;
-                } catch (_) {}
+                  editor.enableTrackChanges = true;
+                  editor.currentUser = (currentUserName || 'User').trim() || 'User';
+                  editor.showRevisions = false;
 
-                // Wire contentChange so parent can know which page was updated (Syncfusion callback)
-                if (onPageUpdatedRef.current) {
                   const prevContentChange = editor.contentChange;
                   editor.contentChange = (args: any) => {
-                    // Preserve any existing handler from Syncfusion
                     if (typeof prevContentChange === 'function') {
                       prevContentChange(args);
                     }
-                    const cb = onPageUpdatedRef.current;
-                    if (!cb) return;
-                  const pageNum =
-                    editor.selection?.startPage ??
-                    editor.selection?.endPage ??
-                    1;
+
+                    const pageNum =
+                      editor.selection?.startPage ??
+                      editor.selection?.endPage ??
+                      1;
                     const pageIndex = Math.max(
                       0,
                       (typeof pageNum === 'number' ? pageNum : 1) - 1
                     );
-                    cb(pageIndex);
+
+                    setTimeout(() => {
+                      labelLastRevisionWithPage(
+                        'request-syncfusion-editor',
+                        pageIndex
+                      );
+                    }, 0);
                   };
-                }
+                } catch (_) {}
 
                 setTimeout(() => {
+                  const editor = c.documentEditor as any;
                   try {
                     // 1) Ensure header is visually updated when editor first opens
                     //    (in case SFDT-based update missed any layout-specific cases).
                     updateTableFields(editor, {
-                      versionNo: APP_VERSION,
+                      // versionNo: APP_VERSION,
                       revisionDate: new Date().toLocaleDateString(),
                     });
 
@@ -652,6 +1035,15 @@ export const SyncfusionRequestEditor: React.FC<SyncfusionRequestEditorProps> = (
 
                   const count = editor?.pageCount || 1;
                   setPageCount(typeof count === 'number' && count > 0 ? count : 1);
+
+                  // Ensure the track-changes pane (if rendered) starts at the very top
+                  resetChangesPaneScrollTop('request-syncfusion-editor');
+
+                  // After initial layout, force the main document back to the very top exactly once.
+                  if (!initialScrollDoneRef.current) {
+                    scrollMainEditorToTop(editor);
+                    initialScrollDoneRef.current = true;
+                  }
                 }, 1200);
               }
             }}

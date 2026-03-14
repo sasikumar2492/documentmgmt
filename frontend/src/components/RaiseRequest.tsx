@@ -186,7 +186,7 @@ export const RaiseRequest: React.FC<RaiseRequestProps> = ({
                     ? 'No items match your search criteria. Try adjusting your search.'
                     : isRequestsMode
                       ? 'Click "Create / Start Request" to create a new request.'
-                      : 'No uploaded documents available. Please upload documents in AI Conversion first.'}
+                      : 'No uploaded documents available. Please add documents via Document Upload first.'}
                 </p>
               </div>
             ) : isRequestsMode ? (
@@ -194,20 +194,15 @@ export const RaiseRequest: React.FC<RaiseRequestProps> = ({
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-slate-50 hover:bg-slate-50">
-                      <TableHead className="font-semibold text-slate-700">Request ID</TableHead>
                       <TableHead className="font-semibold text-slate-700">Document / Title</TableHead>
                       <TableHead className="font-semibold text-slate-700">Department</TableHead>
-                      <TableHead className="font-semibold text-slate-700">Status</TableHead>
-                      <TableHead className="font-semibold text-slate-700">Last Updated</TableHead>
+                      <TableHead className="font-semibold text-slate-700">Uploaded Date</TableHead>
                       <TableHead className="font-semibold text-slate-700 text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredReports.map((report) => (
                       <TableRow key={report.id} className="hover:bg-slate-50 transition-colors">
-                        <TableCell>
-                          <span className="font-mono text-slate-800">{report.requestId || report.id}</span>
-                        </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-3">
                             <div className="w-16 h-12 rounded-lg border border-slate-200 overflow-hidden shadow-sm flex-shrink-0">
@@ -227,17 +222,11 @@ export const RaiseRequest: React.FC<RaiseRequestProps> = ({
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Badge className={getStatusColor((report.status as any) || 'pending')}>
-                            <FileCheck className="h-3 w-3 mr-1" />
-                            {getStatusLabel((report.status as any) || 'pending')}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
                           <div className="flex items-center gap-2">
                             <Calendar className="h-4 w-4 text-slate-500" />
                             <span className="text-slate-700">
-                              {typeof report.lastModified === 'string'
-                                ? report.lastModified.split('T')[0]
+                              {typeof report.uploadDate === 'string'
+                                ? report.uploadDate.split('T')[0]
                                 : report.uploadDate || '—'}
                             </span>
                           </div>

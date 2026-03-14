@@ -244,8 +244,8 @@ export function PreparatorDashboard({ onNavigate, onViewForm, userRole = 'prepar
               className="h-auto py-6 bg-gradient-to-r from-blue-500 to-cyan-600 hover:from-blue-600 hover:to-cyan-700 text-white border-0 shadow-lg flex flex-col gap-2"
             >
               <Bot className="h-8 w-8" />
-              <span className="font-semibold">AI Conversion</span>
-              <span className="text-xs opacity-90">Smart document conversion</span>
+              <span className="font-semibold">Document Upload</span>
+              <span className="text-xs opacity-90">Upload and preview documents</span>
             </Button>
 
             <Button
@@ -308,7 +308,7 @@ export function PreparatorDashboard({ onNavigate, onViewForm, userRole = 'prepar
             <div>
               <h2 className="text-2xl font-bold text-slate-800 mb-2 flex items-center gap-2">
                 <Bot className="h-7 w-7 text-blue-600" />
-                AI Smart Conversion
+                Document Upload
               </h2>
               <p className="text-slate-600">Convert Excel templates to interactive forms using AI technology</p>
             </div>
@@ -323,7 +323,7 @@ export function PreparatorDashboard({ onNavigate, onViewForm, userRole = 'prepar
         </CardContent>
       </Card>
 
-      {/* AI Conversion Features */}
+      {/* Document Upload Features */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card className="border-2 border-blue-200 shadow-md hover:shadow-xl transition-all duration-200">
           <CardHeader>
@@ -388,12 +388,12 @@ export function PreparatorDashboard({ onNavigate, onViewForm, userRole = 'prepar
         </Card>
       </div>
 
-      {/* Recent Conversions */}
+      {/* Recent Uploads */}
       <Card className="shadow-lg border-2 border-slate-200">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-slate-800">
             <RefreshCw className="h-5 w-5 text-blue-500" />
-            Recent AI Conversions
+            Recent Uploads
           </CardTitle>
         </CardHeader>
         <CardContent>

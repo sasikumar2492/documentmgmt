@@ -677,8 +677,8 @@ export function ActivityLogDetail({ requestId, onBack, reports = [], departments
                                   {/* Signature Details */}
                                   <div className="grid grid-cols-2 gap-2 text-xs">
                                     <div className="bg-white p-2 rounded border border-green-200">
-                                      <p className="text-[10px] text-green-700 font-semibold mb-0.5">Signature ID</p>
-                                      <p className="font-mono text-green-900">{activity.esign}</p>
+                                      <p className="text-[10px] text-green-700 font-semibold mb-0.5">Authorized Username</p>
+                                      <p className="font-mono text-green-900">{activity.performedBy}</p>
                                     </div>
                                     <div className="bg-white p-2 rounded border border-green-200">
                                       <p className="text-[10px] text-green-700 font-semibold mb-0.5">Role</p>

@@ -19,7 +19,7 @@ import fedhubLogo from 'figma:asset/959a9d3635cfe8c94a3f28db7f3ab3925aae9843.png
 interface SignInPageProps {
   loginData: { username: string; password: string; rememberMe: boolean; role?: UserRole };
   onLoginDataChange: (data: { username: string; password: string; rememberMe: boolean; role?: UserRole }) => void;
-  onSignIn: (e: React.FormEvent) => void | Promise<void>;
+  onSignIn: (e: React.FormEvent, credentials?: { username: string; password: string }) => void | Promise<void>;
   onBackToHome?: () => void;
   loginError?: string | null;
   isLoading?: boolean;
@@ -76,7 +76,7 @@ export const SignInPage: React.FC<SignInPageProps> = ({ loginData, onLoginDataCh
         rememberMe: rememberPassword,
         role: selectedUser?.role
       });
-      onSignIn(e);
+      onSignIn(e, { username, password });
     }
   };
 
@@ -255,17 +255,17 @@ export const SignInPage: React.FC<SignInPageProps> = ({ loginData, onLoginDataCh
                 </form>
 
                 {/* Divider */}
-                <div className="relative">
+                {/* <div className="relative">
                   <div className="absolute inset-0 flex items-center">
                     <Separator className="w-full bg-slate-200" />
                   </div>
                   <div className="relative flex justify-center text-xs uppercase">
                     <span className="bg-white px-2 text-slate-500">Quick Login by Department (Demo)</span>
                   </div>
-                </div>
+                </div> */}
 
                 {/* Quick Account Selection */}
-                <div className="space-y-2">
+                {/* <div className="space-y-2">
                   <Select value={selectedAccount} onValueChange={handleAccountSelect}>
                     <SelectTrigger className="w-full h-11 bg-slate-50 border-slate-200 text-slate-900">
                       <SelectValue placeholder="Choose demo account..." />
@@ -279,7 +279,7 @@ export const SignInPage: React.FC<SignInPageProps> = ({ loginData, onLoginDataCh
                   <p className="text-xs text-slate-500 mt-1">
                     Selecting a demo account will auto-fill email and password
                   </p>
-                </div>
+                </div> */}
               </CardContent>
             </Card>
 

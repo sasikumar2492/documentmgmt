@@ -47,9 +47,9 @@ export function updateTableFields(editor: any, values: TableFieldValues): void {
       updateFieldByLabel(editor, LABEL_VARIANTS.effectiveDate, values.effectiveDate);
     }
 
-    if (values.revisionDate) {
-      updateFieldByLabel(editor, LABEL_VARIANTS.revisionDate, values.revisionDate);
-    }
+    // if (values.revisionDate) {
+    //   updateFieldByLabel(editor, LABEL_VARIANTS.revisionDate, values.revisionDate);
+    // }
 
     console.log('=== Table field updates complete ===');
   } catch (error) {

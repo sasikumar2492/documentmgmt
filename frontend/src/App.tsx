@@ -74,6 +74,12 @@ import { getDepartments } from './api/departments';
 // Note: legacy /documents API removed; templates are now the source of truth.
 import { getAuditLogs } from './api/auditLogs';
 import {
+  DocumentEditor as SfDocumentEditor,
+  Selection as SfSelection,
+  Editor as SfEditor,
+  EditorHistory as SfEditorHistory,
+} from '@syncfusion/ej2-documenteditor';
+import {
   getRequests,
   createRequest,
   updateRequest,
@@ -81,6 +87,7 @@ import {
   putFormData,
 } from './api/requests';
 import { getTemplateFileBlob, importDocxToSfdt } from './api/templates';
+import { acceptAllChangesInSfdt, cleanAllRevisionsInSfdt } from './utils/sfdtRevisionAcceptor';
 
 export default function App() {
   const [showHomePage, setShowHomePage] = useState(false);
@@ -138,6 +145,88 @@ export default function App() {
     workflow: any[];
     approvedDate: string;
   }>>([]);
+
+  /**
+   * From an SFDT string, generate a clean DOCX **entirely on the client**:
+   * - load SFDT into an off-screen DocumentEditor
+   * - accept all revisions
+   * - export as DOCX Blob via saveAsBlob
+   * - trigger a browser download
+   *
+   * This bypasses the backend /document-editor/Export endpoint so we can
+   * fully control track-changes behavior.
+   */
+  const downloadCleanDocxFromSfdt = async (sfdt: string, fileName: string) => {
+    // Ensure required feature modules are injected for headless editor usage
+    SfDocumentEditor.Inject(SfSelection, SfEditor, SfEditorHistory);
+
+    // Create a hidden host element so the editor's internal viewer state is initialized correctly
+    const host = document.createElement('div');
+    host.style.position = 'fixed';
+    host.style.left = '-9999px';
+    host.style.top = '-9999px';
+    host.style.width = '0';
+    host.style.height = '0';
+    document.body.appendChild(host);
+
+    const editor = new SfDocumentEditor({
+      // Open with track changes disabled so revisions are treated as accepted
+      enableTrackChanges: false,
+      isReadOnly: true,
+    } as any);
+
+    try {
+      // Attach to DOM before opening SFDT so internal viewer objects are created
+      (editor as any).appendTo(host);
+
+      // Best-effort: strip revision metadata from SFDT JSON before opening so
+      // the hidden editor never tries to process track-changes collections.
+      let cleanedForOpen = sfdt;
+      try {
+        const parsed = JSON.parse(sfdt) as any;
+        if (parsed && typeof parsed === 'object') {
+          if (Array.isArray(parsed.revisions)) {
+            delete parsed.revisions;
+          }
+          if (parsed.revisionIds) {
+            delete parsed.revisionIds;
+          }
+          if (parsed.revisionTables) {
+            delete parsed.revisionTables;
+          }
+          cleanedForOpen = JSON.stringify(parsed);
+        }
+      } catch {
+        // If parse fails, fall back to original SFDT
+      }
+
+      editor.open(cleanedForOpen);
+
+      // Export as DOCX Blob
+      const blob: Blob = await (editor as any).saveAsBlob('Docx');
+      const downloadName =
+        fileName && fileName.trim().length > 0 ? fileName : 'document.docx';
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = downloadName;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } finally {
+      try {
+        editor.destroy();
+      } catch {
+        // ignore
+      }
+      if (host.parentNode) {
+        host.parentNode.removeChild(host);
+      }
+    }
+  };
   const [pendingConversion, setPendingConversion] = useState<{
     templateId: string;
     sections: FormSection[];
@@ -560,13 +649,15 @@ export default function App() {
     return null;
   };
 
-  const handleSignIn = async (e: React.FormEvent) => {
+  const handleSignIn = async (e: React.FormEvent, credentials?: { username: string; password: string }) => {
     e.preventDefault();
-    if (!loginData.username || !loginData.password) return;
+    const username = credentials?.username ?? loginData.username;
+    const password = credentials?.password ?? loginData.password;
+    if (!username || !password) return;
     setLoginError(null);
     setLoginInProgress(true);
     try {
-      const data = await login(loginData.username, loginData.password);
+      const data = await login(username, password);
       setStoredToken(data.token);
       setAuthUser(data.user);
       setLoginData((prev) => ({ ...prev, username: data.user.username, role: data.user.role as UserRole }));
@@ -1184,7 +1275,17 @@ export default function App() {
         const exportedFileName = `${baseNameWithoutExt}.docx`;
 
         if (sfdt && sfdt.length > 0) {
-          const exportedBlob = await exportSfdtToDocx(sfdt, exportedFileName);
+          // Before exporting, strip all revision / track‑changes metadata so the
+          // downloaded DOCX shows only clean, accepted content without highlights.
+          let cleanedSfdt = acceptAllChangesInSfdt(sfdt);
+          if (!cleanedSfdt || typeof cleanedSfdt !== 'string') {
+            cleanedSfdt = sfdt;
+          } else if (cleanedSfdt.includes('"revisions"')) {
+            // Fallback: aggressively scrub any remaining revision fields
+            cleanedSfdt = cleanAllRevisionsInSfdt(cleanedSfdt);
+          }
+
+          const exportedBlob = await exportSfdtToDocx(cleanedSfdt, exportedFileName);
           const looksLikeDocx = await isLikelyDocxBlob(exportedBlob);
 
           if (looksLikeDocx) {
@@ -1486,9 +1587,9 @@ export default function App() {
 
     if (isNewRequest) {
       createNewReport(id, assignment);
-      toast.success('Workflow Initiated', {
-        description: `Submitted to ${assignment.reviewerIds.length} reviewers in sequence.`
-      });
+      // toast.success('Workflow Initiated', {
+      //   description: `Submitted to ${assignment.reviewerIds.length} reviewers in sequence.`
+      // });
       setCurrentView('document-library');
       setIsSubmissionModalOpen(false);
       setPendingSubmissionData(null);
@@ -2141,7 +2242,7 @@ export default function App() {
               : templates.find((t) => (report ? t.fileName === report.fileName : t.id === currentDocumentId));
             if (template && template.parsedSections) {
               return (
-                <div className="flex-1 h-full overflow-hidden">
+                <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
                   <DocumentEditScreen
                     documentTitle={template.fileName || 'AI Generated Form'}
                     requestId={report?.requestId || 'NEW-REQ'}
@@ -2187,7 +2288,7 @@ export default function App() {
               'Engineering';
             const initialSfdt = loadedSfdtRef.current ?? loadedSfdtForEditor ?? (currentFormData as Record<string, unknown>)?._sfdt;
             return (
-              <div className="flex-1 h-full overflow-hidden" key={currentDocumentId}>
+              <div className="flex-1 flex flex-col min-h-0 overflow-hidden" key={currentDocumentId}>
                 <SyncfusionRequestEditor
                   templateId={templateId}
                   requestId={report.requestId || report.id}
@@ -2217,7 +2318,7 @@ export default function App() {
             const report = reports.find(r => r.id === currentDocumentId);
             const initialSfdt = (currentFormData as Record<string, unknown>)?._sfdt;
             return (
-              <div className="flex-1 h-full overflow-hidden">
+              <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
                 <DocumentEditScreen
                   documentTitle={report?.fileName || 'Standard Form'}
                   requestId={report?.requestId || 'NEW-REQ'}
@@ -2263,18 +2364,21 @@ export default function App() {
         </div>
       </div>
       
-      <SubmissionAssignmentModal 
-        isOpen={isSubmissionModalOpen}
-        onClose={() => setIsSubmissionModalOpen(false)}
-        onConfirm={handleFinalSubmit}
-        documentTitle={pendingSubmissionData?.title || "Request Document"}
-        userRole={loginData.role}
-        initialReviewerIds={pendingSubmissionData?.reviewSequence}
-        initialPriority={pendingSubmissionData?.priority}
-        initialComments={pendingSubmissionData?.submissionComments}
-        readOnly={pendingSubmissionData?.readOnly}
-        documentStatus={pendingSubmissionData?.status}
-      />
+      {pendingSubmissionData && (
+        <SubmissionAssignmentModal 
+          isOpen={isSubmissionModalOpen}
+          onClose={() => setIsSubmissionModalOpen(false)}
+          onConfirm={handleFinalSubmit}
+          documentTitle={pendingSubmissionData.title || "Request Document"}
+          documentId={pendingSubmissionData.id}
+          userRole={loginData.role}
+          initialReviewerIds={pendingSubmissionData.reviewSequence}
+          initialPriority={pendingSubmissionData.priority}
+          initialComments={pendingSubmissionData.submissionComments}
+          readOnly={pendingSubmissionData.readOnly}
+          documentStatus={pendingSubmissionData.status}
+        />
+      )}
       
       <Toaster />
     </div>

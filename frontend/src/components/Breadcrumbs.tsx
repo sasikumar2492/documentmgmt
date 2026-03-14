@@ -27,7 +27,7 @@ export const Breadcrumbs: React.FC<BreadcrumbsProps> = ({
         break;
       
       case 'upload-templates':
-        breadcrumbs.push({ label: 'Smart AI Conversions', isActive: true });
+        breadcrumbs.push({ label: 'Document Upload', isActive: true });
         break;
       
       case 'raise-request':

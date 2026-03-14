@@ -144,7 +144,7 @@ async function sendDocumentUploadNotification(payload) {
 }
 
 /**
- * Send notification when a template is uploaded from AI Conversion.
+ * Send notification when a template is uploaded (Document Upload).
  * Recipients: uploader; CC: all admins.
  */
 async function sendTemplateUploadNotification(payload) {
@@ -157,7 +157,7 @@ async function sendTemplateUploadNotification(payload) {
 
   const subject = `Template uploaded: ${template.fileName}`;
   const text = [
-    `A template has been uploaded to PHARMA DMS (AI Conversion).`,
+    `A template has been uploaded to PHARMA DMS (Document Upload).`,
     ``,
     `Template: ${template.fileName}`,
     template.departmentName ? `Department: ${template.departmentName}` : '',
@@ -166,7 +166,7 @@ async function sendTemplateUploadNotification(payload) {
   ].filter(Boolean).join('\n');
 
   const html = `
-    <p>A template has been uploaded to <strong>PHARMA DMS</strong> (AI Conversion).</p>
+    <p>A template has been uploaded to <strong>PHARMA DMS</strong> (Document Upload).</p>
     <p><strong>Template:</strong> ${escapeHtml(template.fileName)}</p>
     ${template.departmentName ? `<p><strong>Department:</strong> ${escapeHtml(String(template.departmentName))}</p>` : ''}
     <p><strong>Status:</strong> ${escapeHtml(String(template.status || 'draft'))}</p>

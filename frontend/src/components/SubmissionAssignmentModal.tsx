@@ -30,13 +30,17 @@ import {
   UserPlus
 } from 'lucide-react';
 import { Badge } from './ui/badge';
-import { getUsers } from '../api/users';
+import { Input } from './ui/input';
+import { toast } from 'sonner@2.0.3';
+import { getUsers, validateUserForDocument } from '../api/users';
 
 interface SubmissionAssignmentModalProps {
   isOpen: boolean;
   onClose: () => void;
   onConfirm: (assignment: { reviewerIds: string[]; priority: string; comments: string; action?: string }) => void;
   documentTitle: string;
+  /** Backend request/document identifier used for secondary user validation. */
+  documentId: string;
   userRole?: string;
   /** Pre-selected reviewer IDs (e.g. from API). When set, shown in dropdown and optionally read-only. */
   initialReviewerIds?: string[];
@@ -63,6 +67,7 @@ export const SubmissionAssignmentModal: React.FC<SubmissionAssignmentModalProps>
   onClose,
   onConfirm,
   documentTitle,
+  documentId,
   userRole,
   initialReviewerIds,
   initialPriority,
@@ -77,6 +82,11 @@ export const SubmissionAssignmentModal: React.FC<SubmissionAssignmentModalProps>
   const [reviewersLoading, setReviewersLoading] = useState(false);
   const [reviewersError, setReviewersError] = useState<string | null>(null);
   const appliedInitialRef = React.useRef(false);
+  const [isValidationOpen, setIsValidationOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [validationEmail, setValidationEmail] = useState('');
+  const [validationPassword, setValidationPassword] = useState('');
+  const [validationLoading, setValidationLoading] = useState(false);
 
   // Load users from backend when modal opens
   useEffect(() => {
@@ -170,6 +180,44 @@ export const SubmissionAssignmentModal: React.FC<SubmissionAssignmentModalProps>
     setComments('');
   };
 
+  const openValidationForAction = (action: string) => {
+    if (action === 'submit' && selectedReviewers.length === 0) {
+      alert('Please select at least one reviewer.');
+      return;
+    }
+    setPendingAction(action);
+    setIsValidationOpen(true);
+  };
+
+  const handleValidateAndProceed = async () => {
+    if (!pendingAction) return;
+
+    if (!validationEmail || !validationPassword) {
+      toast.error('Please enter email and password to continue.');
+      return;
+    }
+
+    setValidationLoading(true);
+    try {
+      await validateUserForDocument({
+        identifier: validationEmail,
+        password: validationPassword,
+        documentId,
+      });
+      toast.success('User verified successfully. Proceeding with action.');
+      setIsValidationOpen(false);
+      handleConfirmAction(pendingAction);
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error ||
+        error?.message ||
+        'Failed to validate user for this document.';
+      toast.error(message);
+    } finally {
+      setValidationLoading(false);
+    }
+  };
+
   const handleClose = () => {
     setComments('');
     onClose();
@@ -178,8 +226,9 @@ export const SubmissionAssignmentModal: React.FC<SubmissionAssignmentModalProps>
   const getReviewerDetails = (id: string) => reviewers.find((r) => r.id === id);
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => { if (!open) handleClose(); }}>
-      <DialogContent className="sm:max-w-[550px] p-0 overflow-hidden border-none shadow-2xl">
+    <>
+      <Dialog open={isOpen} onOpenChange={(open) => { if (!open) handleClose(); }}>
+        <DialogContent className="sm:max-w-[550px] p-0 overflow-hidden border-none shadow-2xl">
         <div className="bg-gradient-to-r from-blue-600 to-indigo-700 p-6">
           <DialogHeader>
             <DialogTitle className="text-white flex items-center gap-3 text-xl">
@@ -349,19 +398,19 @@ export const SubmissionAssignmentModal: React.FC<SubmissionAssignmentModalProps>
           {showReviewActionButtons ? (
             <>
               <Button 
-                onClick={() => handleConfirmAction(displayAsApprover ? 'approve' : 'reviewed')}
+                onClick={() => openValidationForAction(displayAsApprover ? 'approve' : 'reviewed')}
                 className={`bg-gradient-to-r ${isApproverOnly ? 'from-blue-500 to-indigo-600' : 'from-emerald-500 to-teal-600'} text-white shadow-lg ${isApproverOnly ? 'shadow-blue-200' : 'shadow-emerald-200'} hover:shadow-xl hover:-translate-y-0.5 transition-all font-bold px-6`}
               >
                 {displayAsApprover ? 'Approved' : 'Reviewed'}
               </Button>
               <Button 
-                onClick={() => handleConfirmAction('revision')}
+                onClick={() => openValidationForAction('revision')}
                 className="bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-lg shadow-amber-200 hover:shadow-xl hover:-translate-y-0.5 transition-all font-bold px-6"
               >
                 Need Revision
               </Button>
               <Button 
-                onClick={() => handleConfirmAction('rejected')}
+                onClick={() => openValidationForAction('rejected')}
                 className="bg-gradient-to-r from-rose-500 to-pink-600 text-white shadow-lg shadow-rose-200 hover:shadow-xl hover:-translate-y-0.5 transition-all font-bold px-6"
               >
                 Rejected
@@ -369,7 +418,7 @@ export const SubmissionAssignmentModal: React.FC<SubmissionAssignmentModalProps>
             </>
           ) : (
             <Button 
-              onClick={() => handleConfirmAction('submit')}
+              onClick={() => openValidationForAction('submit')}
               className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all font-bold px-8"
             >
               Confirm & Submit
@@ -378,6 +427,70 @@ export const SubmissionAssignmentModal: React.FC<SubmissionAssignmentModalProps>
           )}
         </DialogFooter>
       </DialogContent>
-    </Dialog>
+      </Dialog>
+
+      <Dialog open={isValidationOpen} onOpenChange={(open) => setIsValidationOpen(open)}>
+        <DialogContent className="sm:max-w-[450px] p-0 overflow-hidden border-none shadow-2xl">
+          <div className="bg-gradient-to-r from-blue-600 to-indigo-700 p-6">
+            <DialogHeader>
+              <DialogTitle className="text-white flex items-center gap-3 text-xl">
+                <div className="p-2 bg-white/20 rounded-lg backdrop-blur-md">
+                  <ShieldCheck className="h-5 w-5 text-white" />
+                </div>
+                Verify Your Identity
+              </DialogTitle>
+              <DialogDescription className="text-blue-100 text-sm mt-2">
+                Authenticate yourself before performing this critical action on the document.
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+
+          <div className="p-6 space-y-5 bg-white">
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                Email Address
+              </Label>
+              <Input
+                type="email"
+                placeholder="you@example.com"
+                value={validationEmail}
+                onChange={(e) => setValidationEmail(e.target.value)}
+                autoComplete="identifier"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                Password
+              </Label>
+              <Input
+                type="password"
+                placeholder="Enter your password"
+                value={validationPassword}
+                onChange={(e) => setValidationPassword(e.target.value)}
+                autoComplete="current-password"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="p-6 bg-slate-50 border-t border-slate-100 flex flex-wrap gap-3 sm:justify-end">
+            <Button
+              variant="outline"
+              onClick={() => setIsValidationOpen(false)}
+              className="border-slate-200 text-slate-600"
+              disabled={validationLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleValidateAndProceed}
+              disabled={validationLoading}
+              className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all font-bold px-6"
+            >
+              {validationLoading ? 'Verifying...' : 'Authenticate & Continue'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 };

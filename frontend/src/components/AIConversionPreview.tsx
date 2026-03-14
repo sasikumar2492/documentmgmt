@@ -267,7 +267,7 @@ export const AIConversionPreview: React.FC<AIConversionPreviewProps> = ({
             <Brain className="h-6 w-6 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">AI Conversion Preview</h1>            
+            <h1 className="text-2xl font-bold text-slate-900">Document Preview</h1>            
           </div>
         </div>
         <div className="flex items-center gap-3">

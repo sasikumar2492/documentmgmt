@@ -88,8 +88,6 @@ interface DocumentEditScreenProps {
   sections?: FormSection[];
   onDynamicSave?: (formData: Record<string, any>) => void;
   initialData?: Record<string, any>;
-  /** Called when user edits content in Syncfusion editor; receives 0-based page index */
-  onPageUpdated?: (pageIndex: number) => void;
 }
 
 export const DocumentEditScreen = ({
@@ -115,8 +113,7 @@ export const DocumentEditScreen = ({
   isDynamicForm,
   sections,
   onDynamicSave,
-  initialData,
-  onPageUpdated,
+  initialData
 }: DocumentEditScreenProps) => {
   // Syncfusion editor state
   const [sfdt, setSfdt] = useState(null);
@@ -133,13 +130,43 @@ export const DocumentEditScreen = ({
   const [isRemarksModalOpen, setIsRemarksModalOpen] = useState(false);
   const [activeRemarkPage, setActiveRemarkPage] = useState(null);
   const [pageRemarks, setPageRemarks] = useState({});
+  const [showHistory, setShowHistory] = useState(false);
   
   // Use Syncfusion editor only when explicitly enabled by props
   const isSyncfusionMode = !!useSyncfusionEditor;
-  const normalizedStatus = (status || '').toLowerCase();
-  const isPublished = normalizedStatus === 'published';
   const effectiveTemplateId = templateId;
   const totalPages = pageCount;
+
+  // Prevent any page scroll when in Syncfusion mode: fix body and html so only editor/panes scroll
+  useEffect(() => {
+    if (!isSyncfusionMode) return;
+    const scrollY = window.scrollY;
+    const prevBody = {
+      position: document.body.style.position,
+      top: document.body.style.top,
+      left: document.body.style.left,
+      right: document.body.style.right,
+      width: document.body.style.width,
+      overflow: document.body.style.overflow,
+    };
+    document.documentElement.classList.add('document-editor-active');
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.left = '0';
+    document.body.style.right = '0';
+    document.body.style.width = '100%';
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.documentElement.classList.remove('document-editor-active');
+      document.body.style.position = prevBody.position;
+      document.body.style.top = prevBody.top;
+      document.body.style.left = prevBody.left;
+      document.body.style.right = prevBody.right;
+      document.body.style.width = prevBody.width;
+      document.body.style.overflow = prevBody.overflow;
+      window.scrollTo(0, scrollY);
+    };
+  }, [isSyncfusionMode]);
 
   // Load Syncfusion document from form-data _sfdt, or blank document when none (e.g. new request after upload)
   useEffect(() => {
@@ -189,6 +216,106 @@ export const DocumentEditScreen = ({
         border: none !important;
         padding: 0 !important;
       }
+      /* Track changes sidebar container */
+      #edit-screen-syncfusion-editor .e-de-tc-pane {
+        display: flex !important;
+        flex-direction: column !important;
+        height: 100% !important;
+        max-height: 100vh !important;
+        background: #f9fafb !important; /* slate-50 */
+        border-left: 1px solid #e5e7eb !important; /* slate-200 */
+      }
+      /* Track changes toolbar */
+      #edit-screen-syncfusion-editor .e-de-tc-pane .e-de-track-toolbar {
+        flex: 0 0 auto !important;
+        border-bottom: 1px solid #e5e7eb !important;
+        background: #f9fafb !important;
+        padding-inline: 8px !important;
+      }
+      /* Scrollable list area */
+      #edit-screen-syncfusion-editor .e-de-tc-pane .e-de-tc-hide-para-mark#e-de-tc-pane-revision {
+        flex: 1 1 auto !important;
+        height: 100% !important;
+        max-height: 100% !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        padding: 12px 8px 12px 12px !important;
+        background: transparent !important;
+      }
+      #edit-screen-syncfusion-editor .e-de-tc-pane .e-de-tc-hide-para-mark#e-de-tc-pane-revision::-webkit-scrollbar {
+        width: 6px;
+      }
+      #edit-screen-syncfusion-editor .e-de-tc-pane .e-de-tc-hide-para-mark#e-de-tc-pane-revision::-webkit-scrollbar-track {
+        background: rgba(241, 245, 249, 0.9); /* slate-100 */
+      }
+      #edit-screen-syncfusion-editor .e-de-tc-pane .e-de-tc-hide-para-mark#e-de-tc-pane-revision::-webkit-scrollbar-thumb {
+        background: rgba(148, 163, 184, 0.7); /* slate-400 */
+        border-radius: 9999px;
+      }
+      #edit-screen-syncfusion-editor .e-de-tc-pane .e-de-tc-hide-para-mark#e-de-tc-pane-revision::-webkit-scrollbar-thumb:hover {
+        background: rgba(100, 116, 139, 0.9); /* slate-500 */
+      }
+      /* Revision "card" */
+      #edit-screen-syncfusion-editor .e-de-tc-outer {
+        border-radius: 12px !important;
+        border: 1px solid #e5e7eb !important;
+        background: #ffffff !important;
+        margin-bottom: 8px !important;
+        padding: 8px 12px !important;
+        box-shadow: 0 4px 10px rgba(15, 23, 42, 0.04) !important;
+        transition: box-shadow 0.15s ease, transform 0.15s ease,
+          border-color 0.15s ease, background-color 0.15s ease;
+      }
+      #edit-screen-syncfusion-editor .e-de-tc-outer:hover {
+        border-color: #bfdbfe !important; /* blue-200 */
+        background: #f9fafb !important;
+        box-shadow: 0 10px 20px rgba(15, 23, 42, 0.06) !important;
+        transform: translateY(-1px);
+      }
+      /* Header row: user + page badge */
+      #edit-screen-syncfusion-editor .e-de-track-usernme-div {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        gap: 8px !important;
+        margin-bottom: 4px !important;
+      }
+      #edit-screen-syncfusion-editor .e-de-track-usernme-div span {
+        font-size: 11px !important;
+        font-weight: 600 !important;
+        color: #0f172a !important; /* slate-900 */
+      }
+      /* Our injected page badge */
+      #edit-screen-syncfusion-editor .fed-page-badge {
+        margin-left: 8px;
+        padding: 2px 8px;
+        border-radius: 9999px;
+        background: rgba(59, 130, 246, 0.12); /* blue-500/10 */
+        color: #1d4ed8; /* blue-700 */
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      /* Change summary / body text */
+      #edit-screen-syncfusion-editor .e-de-track-chng-row,
+      #edit-screen-syncfusion-editor .e-de-track-chngs-text {
+        font-size: 11px !important;
+        line-height: 1.5 !important;
+        color: #4b5563 !important; /* slate-600 */
+      }
+      /* Time / metadata row */
+      #edit-screen-syncfusion-editor .e-de-track-date,
+      #edit-screen-syncfusion-editor .e-de-track-chng-time {
+        font-size: 10px !important;
+        color: #9ca3af !important; /* slate-400 */
+        margin-top: 2px !important;
+      }
+      /* Hide Accept / Reject buttons in the CHANGES list */
+      #edit-screen-syncfusion-editor .e-de-track-accept-button,
+      #edit-screen-syncfusion-editor .e-de-track-reject-button {
+        display: none !important;
+      }
     `;
     document.head.appendChild(style);
     return () => {
@@ -208,20 +335,24 @@ export const DocumentEditScreen = ({
   const handleZoomIn = () => setZoom((prev) => Math.min(prev + 10, 200));
   const handleZoomOut = () => setZoom((prev) => Math.max(prev - 10, 50));
   const handlePrint = () => window.print();
-
-  // Apply zoom to Syncfusion document editor when zoom state changes
-  useEffect(() => {
-    if (!isSyncfusionMode) return;
-    const editor = containerRef.current?.documentEditor;
-    if (!editor) return;
-    const factor = Math.max(0.1, Math.min(5, zoom / 100));
-    if (typeof editor.zoomFactor !== 'undefined') {
-      editor.zoomFactor = factor;
-    } else if (typeof editor.setZoomFactor === 'function') {
-      editor.setZoomFactor(factor);
-    }
-  }, [zoom, isSyncfusionMode]);
-
+  
+  const handleToggleHistory = () => {
+    setShowHistory((prev) => {
+      const next = !prev;
+      const editor = (containerRef.current as any)?.documentEditor as any;
+      if (editor) {
+        editor.showRevisions = next;
+        if (next) {
+          // When user explicitly opens history, (re)compute page numbers for revisions
+          setTimeout(() => {
+            recomputeRevisionPages(editor, 'edit-screen-syncfusion-editor');
+          }, 300);
+        }
+      }
+      return next;
+    });
+  };
+  
   // Syncfusion handlers
   const handleSyncfusionSave = () => {
     const editor = containerRef.current?.documentEditor;
@@ -262,6 +393,133 @@ export const DocumentEditScreen = ({
     }
   };
 
+  /**
+   * Update the CHANGES list so the current (latest) item shows the page
+   * next to the user name while typing.
+   */
+  const labelLastRevisionWithPage = (rootId: string, pageIndex: number) => {
+    try {
+      const container = document.getElementById(rootId);
+      if (!container) return;
+
+      const reviewPane = container.querySelector('.e-de-tc-pane');
+      if (!reviewPane) return;
+
+      const selectedInner = reviewPane.querySelector(
+        '.e-de-trckchanges-inner-select'
+      ) as HTMLElement | null;
+      const card = (selectedInner?.closest('.e-de-tc-outer') ||
+        reviewPane.querySelector('.e-de-tc-outer:last-of-type')) as
+        | HTMLElement
+        | null;
+      if (!card) return;
+
+      const header = card.querySelector(
+        '.e-de-track-usernme-div'
+      ) as HTMLElement | null;
+      if (!header) return;
+
+      let badge = header.querySelector('.fed-page-badge') as HTMLElement | null;
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'fed-page-badge';
+        header.appendChild(badge);
+      }
+      badge.textContent = `Page ${pageIndex + 1}`;
+    } catch {
+      // Non-blocking UI enhancement; ignore failures
+    }
+  };
+
+  /**
+   * After a document is opened, walk all revisions, capture their page index,
+   * and then annotate each CHANGES card with "Page N". This runs on load so
+   * page numbers are restored when reopening drafts.
+   */
+  const annotateChangesPaneWithPages = (
+    rootId: string,
+    pageMap: Map<number, number>
+  ) => {
+    const container = document.getElementById(rootId);
+    if (!container) return;
+
+    const reviewPane = container.querySelector('.e-de-tc-pane');
+    if (!reviewPane) return;
+
+    const cards = reviewPane.querySelectorAll('.e-de-tc-outer');
+    cards.forEach((card, idx) => {
+      const header = (card as HTMLElement).querySelector(
+        '.e-de-track-usernme-div'
+      ) as HTMLElement | null;
+      if (!header) return;
+
+      let badge = header.querySelector('.fed-page-badge') as HTMLElement | null;
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'fed-page-badge';
+        header.appendChild(badge);
+      }
+
+      const pageIndex = pageMap.get(idx);
+      if (pageIndex != null) {
+        badge.textContent = `Page ${pageIndex + 1}`;
+      }
+    });
+  };
+
+  const recomputeRevisionPages = (editor: any, rootId: string) => {
+    try {
+      const revisions = editor?.revisions;
+      if (!revisions || typeof revisions.get !== 'function') return;
+
+      // Remember the current page so we can restore it after
+      const originalPageNum =
+        editor.selection?.startPage ?? editor.selection?.endPage ?? 1;
+
+      const count =
+        typeof revisions.length === 'number'
+          ? revisions.length
+          : typeof revisions.getCount === 'function'
+          ? revisions.getCount()
+          : 0;
+      if (!count || count <= 0) return;
+
+      const pageMap = new Map<number, number>();
+
+      for (let i = 0; i < count; i++) {
+        const rev = revisions.get(i);
+        if (!rev || typeof rev.select !== 'function') continue;
+
+        try {
+          // Select this revision so selection.startPage reflects it
+          rev.select();
+          const pageNum =
+            editor.selection?.startPage ?? editor.selection?.endPage ?? 1;
+          const pageIndex = Math.max(
+            0,
+            (typeof pageNum === 'number' ? pageNum : 1) - 1
+          );
+          pageMap.set(i, pageIndex);
+        } catch {
+          // Skip problematic revision; continue others
+        }
+      }
+
+      annotateChangesPaneWithPages(rootId, pageMap);
+
+      // Restore the original page so initial load stays where the user expects
+      if (
+        typeof originalPageNum === 'number' &&
+        originalPageNum > 0 &&
+        typeof editor.scrollToPage === 'function'
+      ) {
+        editor.scrollToPage(originalPageNum);
+      }
+    } catch {
+      // Best-effort only; ignore failures
+    }
+  };
+
   // Scroll to top when page changes
   useEffect(() => {
     const mainContent = document.getElementById('edit-screen-main');
@@ -288,7 +546,7 @@ export const DocumentEditScreen = ({
                          username === 'robert.manager';
 
   return (
-    <div className="h-screen bg-slate-50 text-slate-900 flex flex-col font-sans overflow-hidden">
+    <div className="h-full min-h-0 bg-slate-50 text-slate-900 flex flex-col font-sans overflow-hidden">
       {/* Remarks Modal */}
       <PageRemarksModal 
         isOpen={isRemarksModalOpen}
@@ -299,7 +557,7 @@ export const DocumentEditScreen = ({
       />
       
       {/* Top Toolbar */}
-      <div className="h-16 border-b border-slate-200 bg-white backdrop-blur sticky top-0 z-50 px-6 flex items-center justify-between shadow-sm">
+      <div className="h-16 flex-shrink-0 border-b border-slate-200 bg-white backdrop-blur z-50 px-6 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-4">
           <Button 
             variant="ghost" 
@@ -336,6 +594,15 @@ export const DocumentEditScreen = ({
             <History className="h-4 w-4" />
             View Activity
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleToggleHistory}
+            className="border-blue-200 text-blue-600 hover:bg-blue-50 font-bold hidden md:flex gap-2 mr-2"
+          >
+            <History className="h-4 w-4" />
+            {showHistory ? 'Hide History' : 'View History'}
+          </Button>
 
           {/* Zoom Controls */}
           <div className="flex items-center bg-slate-100 rounded-lg p-1 mr-4 hidden md:flex border border-slate-200">
@@ -350,7 +617,6 @@ export const DocumentEditScreen = ({
 
           {!isReviewerRole && (
             <>
-              {/* Reset button commented out for now
               <Button 
                 variant="outline" 
                 size="sm" 
@@ -360,44 +626,35 @@ export const DocumentEditScreen = ({
                 <RotateCcw className="h-4 w-4" />
                 Reset
               </Button>
-              */}
 
               <Button 
                 variant="outline" 
                 size="sm" 
-                onClick={isPublished ? undefined : handleSyncfusionSave}
-                disabled={isPublished}
-                className={`border-none shadow-lg transform active:translate-y-0 transition-all font-bold hidden sm:flex gap-2 ${
-                  isPublished
-                    ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                    : 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-blue-200 hover:-translate-y-0.5'
-                }`}
+                onClick={handleSyncfusionSave}
+                className="border-none shadow-lg transform hover:-translate-y-0.5 active:translate-y-0 transition-all font-bold hidden sm:flex gap-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-blue-200"
               >
                 <Save className="h-4 w-4" />
-                {isPublished ? 'Read Only' : 'Save Draft'}
+                Save Draft
               </Button>
             </>
           )}
           
           <Button 
             size="sm" 
-            onClick={isPublished ? undefined : handleSyncfusionSubmit}
-            disabled={isPublished}
+            onClick={handleSyncfusionSubmit}
             className={`border-none shadow-lg transform hover:-translate-y-0.5 active:translate-y-0 transition-all font-bold gap-2 ${
-              isPublished
-                ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                : isReviewerRole
-                  ? 'bg-gradient-to-r from-blue-600 to-indigo-700 text-white shadow-blue-300 px-8'
-                  : 'bg-gradient-to-r from-blue-600 to-indigo-700 text-white shadow-blue-300'
+              isReviewerRole
+                ? 'bg-gradient-to-r from-blue-600 to-indigo-700 text-white shadow-blue-300 px-8'
+                : 'bg-gradient-to-r from-blue-600 to-indigo-700 text-white shadow-blue-300'
             }`}
           >
             <Send className="h-4 w-4" />
-            {isPublished ? 'Published' : 'Submit'}
+            Submit
           </Button>
         </div>
       </div>
 
-      <div className="flex-1 flex relative overflow-hidden">
+      <div className="flex-1 min-h-0 flex relative overflow-hidden">
         {/* Smart Navigator - Integrated into main screen area with transition */}
         <div 
           className={`h-full border-r border-slate-200 bg-white transition-all duration-500 overflow-hidden relative ${isSmartScrollCollapsed ? 'w-16' : 'w-80'}`}
@@ -423,10 +680,10 @@ export const DocumentEditScreen = ({
           </button>
         </div>
 
-        {/* Main Editor Area */}
+        {/* Main Editor Area - overflow-hidden so only Syncfusion panes (document + changes list) scroll */}
         <main 
           id="edit-screen-main"
-          className="flex-1 overflow-y-auto bg-white"
+          className="flex-1 min-h-0 overflow-hidden bg-white flex flex-col"
         >
           {syncLoading && (
             <div className="h-full w-full flex flex-col items-center justify-center bg-slate-50">
@@ -444,7 +701,7 @@ export const DocumentEditScreen = ({
           )}
 
           {!syncLoading && sfdt && (
-            <div className="w-full h-full flex flex-col bg-white overflow-hidden">
+            <div className="flex-1 min-h-0 w-full flex flex-col bg-white overflow-hidden">
               <DocumentEditorContainerComponent
                 ref={containerRef}
                 id="edit-screen-syncfusion-editor"
@@ -452,7 +709,17 @@ export const DocumentEditScreen = ({
                 serviceUrl={`${apiClient.defaults.baseURL}/document-editor/`}
                 enableToolbar={true}
                 showPropertiesPane={false}
+                enableTrackChanges={true}
                 documentEditorSettings={{ optimizeSfdt: false }}
+                documentChange={() => {
+                  const ed = containerRef.current?.documentEditor as any;
+                  if (ed) {
+                    ed.enableTrackChanges = true;
+                    ed.currentUser =
+                      (fullName || username || 'User').trim() || 'User';
+                    ed.showRevisions = showHistory;
+                  }
+                }}
                 toolbarItems={[
                   'Undo',
                   'Redo',
@@ -490,20 +757,12 @@ export const DocumentEditScreen = ({
                     c.documentEditor.open(sfdt);
                     const editor = c.documentEditor as any;
                     editor.zoomFactor = 1.0;
+                    editor.enableTrackChanges = true;
+                    editor.currentUser =
+                      (fullName || username || 'User').trim() || 'User';
+                    editor.showRevisions = false;
 
-                    // Make the document strictly read-only when published
-                    if (isPublished) {
-                      try {
-                        editor.isReadOnly = true;
-                        if (typeof editor.enableReadOnlyMode === 'function') {
-                          editor.enableReadOnlyMode(true);
-                        }
-                      } catch {
-                        // Ignore errors; read-only is a UX safeguard, main guard is disabled actions
-                      }
-                    }
-
-                    // Log which page was updated whenever content changes
+                    // Wire contentChange so we can record which page was edited and annotate CHANGES list.
                     const prevContentChange = editor.contentChange;
                     editor.contentChange = (args: any) => {
                       if (typeof prevContentChange === 'function') {
@@ -517,14 +776,17 @@ export const DocumentEditScreen = ({
                         0,
                         (typeof pageNum === 'number' ? pageNum : 1) - 1
                       );
-                      console.log(
-                        '[DocumentEditScreen] content updated on page',
-                        pageIndex + 1
-                      );
-                      if (onPageUpdated) {
-                        onPageUpdated(pageIndex);
-                      }
+
+                      // When a new revision is created, just update the badge
+                      // on the latest CHANGES card with the correct page number.
+                      setTimeout(() => {
+                        labelLastRevisionWithPage(
+                          'edit-screen-syncfusion-editor',
+                          pageIndex
+                        );
+                      }, 0);
                     };
+
                     
                     // Update header table and dynamic footer signatories after document is loaded
                     setTimeout(() => {
@@ -540,6 +802,7 @@ export const DocumentEditScreen = ({
                       try {
                         const rawRole = userRole || '';
                         const normalizedRole = rawRole.toLowerCase();
+                        const normalizedStatus = (status || '').toLowerCase();
                         // Prefer a human-friendly label for the signatory name:
                         // 1) use the role label from login (e.g. "Reviewer 1")
                         // 2) fall back to username (e.g. "reviewer1")

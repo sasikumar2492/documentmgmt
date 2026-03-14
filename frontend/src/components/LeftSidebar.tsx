@@ -61,7 +61,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
 
   // Define all menu items with role permissions
   const allMenuItems = [
-    { id: 'document-management', label: 'AI Conversion', icon: Sparkles, isAI: true, roles: ['admin', 'requestor', 'preparator'] },
+    { id: 'document-management', label: 'Document Upload', icon: Sparkles, isAI: true, roles: ['admin', 'requestor', 'preparator'] },
     { id: 'raise-request', label: 'Raise Request', icon: FilePlus, roles: ['admin', 'requestor', 'preparator'] },
     { id: 'document-library', label: 'Document Library', icon: Library, roles: ['admin', 'requestor', 'preparator', 'manager', 'manager_reviewer', 'manager_approver', 'approver'] },
     { id: 'document-effectiveness', label: 'Document Effectiveness', icon: TrendingUp, roles: ['admin', 'manager', 'preparator', 'requestor', 'reviewer', 'approver'] },

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { importDocxToSfdt } from '../api/templates';
+import { exportSfdtToDocx } from '../api/templates';
 import { apiClient } from '../api/client';
 import { renderAsync } from 'docx-preview';
 import {
@@ -22,6 +23,7 @@ import { FileText, Download, Loader2 } from 'lucide-react';
 import { applyHeaderFooterToDocument, mergeWithDefaults, insertHeaderFooterAsContent } from '../utils/headerFooterFormatter';
 import { updateHeaderFieldsInSFDT, updateFooterFieldsInSFDT, type FooterFieldValues, type SignatoryValues } from '../utils/sfdtModifier';
 import { updateTableFields } from '../utils/tableFieldUpdater';
+import { DocumentEditor as SfDocumentEditor } from '@syncfusion/ej2-documenteditor';
 
 DocumentEditorContainerComponent.Inject(DocEditorToolbar);
 
@@ -212,6 +214,30 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+/**
+ * Given an SFDT string, return a new SFDT where all tracked changes
+ * have been accepted. Used only for downloads so the exported DOCX
+ * has no track-changes markup, without affecting the in-app editor.
+ */
+function getSfdtWithAcceptedRevisions(sfdt: string): string {
+  try {
+    const editor = new SfDocumentEditor({
+      enableTrackChanges: true,
+      isReadOnly: true,
+    } as any);
+    editor.open(sfdt);
+    if (editor.revisions && typeof editor.revisions.acceptAll === 'function') {
+      editor.revisions.acceptAll();
+    }
+    const cleaned = editor.serialize();
+    editor.destroy();
+    return typeof cleaned === 'string' ? cleaned : sfdt;
+  } catch {
+    // If anything fails, fall back to original SFDT so we don't block download
+    return sfdt;
+  }
+}
+
 export const OriginalDocViewer: React.FC<OriginalDocViewerProps> = ({
   templateId,
   fileName,
@@ -365,6 +391,11 @@ export const OriginalDocViewer: React.FC<OriginalDocViewerProps> = ({
         font-size: 12px !important;
         min-width: 60px !important;
       }
+      /* Preview: hide track changes / revisions sidebar */
+      #original-doc-word-editor .e-de-splitter-pane:has(.e-de-review-pane),
+      #original-doc-word-editor .e-de-review-pane {
+        display: none !important;
+      }
     `;
     document.head.appendChild(style);
     return () => {
@@ -483,12 +514,37 @@ export const OriginalDocViewer: React.FC<OriginalDocViewerProps> = ({
   }
 
   if (fileType === 'word') {
-    const handleDownload = () => {
+    const handleDownload = async () => {
+      const originalName = fileName || 'document.docx';
+      const baseNameWithoutExt = originalName.replace(/\.(docx?|doc)$/i, '') || 'document';
+      const exportedFileName = `${baseNameWithoutExt}.docx`;
+
+      // If we have SFDT (submitted/saved document), prefer exporting a clean DOCX without track changes
+      if (initialSfdt && initialSfdt.length > 0) {
+        try {
+          const cleanSfdt = getSfdtWithAcceptedRevisions(initialSfdt);
+          const exportedBlob = await exportSfdtToDocx(cleanSfdt, exportedFileName);
+          const url = URL.createObjectURL(exportedBlob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = exportedFileName;
+          a.rel = 'noopener';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          return;
+        } catch {
+          // If clean export fails, fall through to raw blob download
+        }
+      }
+
+      // Fallback: download the original Word blob (may still contain revisions)
       if (!wordBlob) return;
       const url = URL.createObjectURL(wordBlob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = fileName || 'document.docx';
+      a.download = originalName;
       a.click();
       URL.revokeObjectURL(url);
     };
@@ -527,6 +583,7 @@ export const OriginalDocViewer: React.FC<OriginalDocViewerProps> = ({
               serviceUrl={documentEditorServiceUrl}
               enableToolbar={!readOnly}
               showPropertiesPane={!readOnly}
+              enableTrackChanges={!readOnly}
               documentEditorSettings={readOnly ? { isReadOnly: true } : undefined}
               created={() => {
                 const c = documentEditorContainerRef.current;
@@ -537,6 +594,7 @@ export const OriginalDocViewer: React.FC<OriginalDocViewerProps> = ({
                   (c.documentEditor as any).zoomFactor = 1.0;
                   if (readOnly) {
                     (c.documentEditor as any).isReadOnly = true;
+                    (c.documentEditor as any).showRevisions = false;
                   }
                   
                   // Optionally update footer after document is loaded

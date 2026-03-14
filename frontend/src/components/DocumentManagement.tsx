@@ -152,11 +152,10 @@ export const DocumentManagement: React.FC<DocumentManagementProps> = ({
         <div className="mb-8 flex items-center justify-between">
           <div>
             <div className="flex items-center gap-3 mb-1">
-              <h1 className="text-2xl font-bold bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 bg-clip-text text-transparent">AI Conversion</h1>
+              <h1 className="text-2xl font-bold bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 bg-clip-text text-transparent">Document Hub</h1>
               <div className="flex items-center gap-1 px-3 py-1 bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-full border border-blue-500/30">
                 <Sparkles className="h-4 w-4 text-blue-500 animate-pulse" />
-                <span className="text-sm text-blue-600 font-medium">AI Powered</span>
-                <Wand2 className="h-3 w-3 text-purple-500 animate-pulse" style={{ animationDuration: '1.5s' }} />
+                
               </div>
             </div>
           </div>
@@ -226,10 +225,10 @@ export const DocumentManagement: React.FC<DocumentManagementProps> = ({
           <CardHeader>
             <CardTitle className="text-lg text-slate-800 flex items-center gap-2">
               <Upload className="h-5 w-5 text-blue-600" />
-              Smart AI Conversions
+              Upload documents
             </CardTitle>
             <CardDescription className="text-slate-500">
-              Upload documents and AI will automatically detect departments, analyze sections, and generate workflows
+              
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">

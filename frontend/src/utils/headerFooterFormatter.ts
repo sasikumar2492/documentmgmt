@@ -250,13 +250,13 @@ function buildHeaderText(data: Partial<HeaderFooterData>): string {
 
   const lines = [
     `SOP No.: ${sopNo}`,
-    `Version No.: ${version}`,
+    // `Version No.: ${version}`,
     `Effective Date: ${effectiveDate}`,
   ];
 
-  if (revisionDate) {
-    lines.push(`Revision Date: ${revisionDate}`);
-  }
+  // if (revisionDate) {
+  //   lines.push(`Revision Date: ${revisionDate}`);
+  // }
 
   return lines.join('\n');
 }

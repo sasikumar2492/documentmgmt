@@ -64,7 +64,7 @@ export const UploadTemplates: React.FC<UploadTemplatesProps> = ({
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 bg-clip-text text-transparent mb-1">
-            AI Conversion
+            Document Upload
           </h1>
         </div>
         
@@ -146,10 +146,10 @@ export const UploadTemplates: React.FC<UploadTemplatesProps> = ({
         <CardHeader className="border-b border-slate-50 px-8 py-6">
           <CardTitle className="text-lg text-slate-800 flex items-center gap-2">
             <Upload className="h-5 w-5 text-blue-600" />
-            Smart AI Conversions
+            Document Upload
           </CardTitle>
           <CardDescription className="text-slate-500">
-            Upload documents and AI will automatically detect departments, analyze sections, and generate workflows
+            Upload documents
           </CardDescription>
         </CardHeader>
         <CardContent className="p-8 space-y-8">
