@@ -24,6 +24,29 @@ Node.js API: Express, PostgreSQL, JWT auth, **local file storage** for templates
 
 Server runs at **http://localhost:4000** (or `PORT` in `.env`).
 
+## Build & validation (is the code eligible for build?)
+
+Before deploying or releasing, ensure the code passes checks:
+
+1. **Syntax check (all JS files)**  
+   ```bash
+   npm run build
+   ```
+   or  
+   ```bash
+   npm run validate
+   ```
+   Both run the same script: they validate syntax of every `.js` file (excluding `node_modules`). If any file has a syntax error, the command exits with code 1 and lists failed files.
+
+2. **Smoke test**  
+   Start the server and hit the health endpoint:
+   ```bash
+   npm start
+   ```
+   Then `GET http://localhost:4000/api/health` — if it responds, the app loads correctly.
+
+3. **(Optional)** Add ESLint and tests later; then `npm run build` can be extended to run `lint` and `test` as well.
+
 ## Env (.env)
 
 | Variable | Description |
